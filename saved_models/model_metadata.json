@@ -1,31 +1,28 @@
 {
-  "version": "20250314180006-6d7cdb",
-  "created_at": "2025-03-14 18:00:06",
+  "version": "20250314193745-a86c21",
+  "created_at": "2025-03-14 19:37:45",
   "data_stats": {
     "num_campaigns": 192,
-    "feature_count": 23,
+    "feature_count": 19,
     "categorical_features": [
-      "Dialog",
-      "Syfte",
-      "Product",
-      "county",
       "dialog",
       "syfte",
-      "product"
+      "product",
+      "county"
     ]
   },
   "performance": {
     "open_rate": {
-      "mae": 10.874899906912017,
-      "std": 5.222339721779846
+      "mae": 6.272818372011061,
+      "std": 2.3440841264307237
     },
     "click_rate": {
-      "mae": 2.1771489057962197,
-      "std": 0.6702513670867741
+      "mae": 2.416827773303482,
+      "std": 0.7140090920029663
     },
     "optout_rate": {
-      "mae": -0.0,
-      "std": 0.0
+      "mae": 0.08590183092327756,
+      "std": 0.01920682117296774
     }
   },
   "model_types": {
