@@ -338,6 +338,102 @@ def load_data():
         st.error(f"Error loading data: {e}")
         return None, None
 
+# This function should be integrated into the data export tab section of your code
+# and replace the existing report generation code
+
+def generate_campaign_report(parameters, formatted_predictions, BOLAG_VALUES):
+    """
+    Generate a comprehensive campaign report with all predictions and parameters.
+    
+    Parameters:
+    - parameters: Parameters dictionary from campaign_parameter_input
+    - formatted_predictions: Formatted prediction results
+    - BOLAG_VALUES: Dictionary mapping bolag names to codes
+    
+    Returns:
+    - Report text in markdown format
+    """
+    import datetime
+    
+    # Get the bolag name from the code
+    selected_bolag_code = parameters['bolag']
+    selected_bolag_name = next((name for name, code in BOLAG_VALUES.items() if code == selected_bolag_code), selected_bolag_code)
+    
+    # Get excluded bolags
+    excluded_bolags = []
+    if 'excluded_bolags' in parameters and parameters['excluded_bolags']:
+        excluded_bolags = [
+            next((name for name, code in BOLAG_VALUES.items() if code == bolag_code), bolag_code)
+            for bolag_code in parameters['excluded_bolags']
+        ]
+    
+    # Create the report text
+    report = f"""
+    # Email Campaign Prediction Report
+    **Date:** {datetime.date.today().strftime('%Y-%m-%d')}
+
+    """
+    
+    # Add excluded bolags if any
+    if excluded_bolags:
+        report += f"- **Excluded Bolag:** {', '.join(excluded_bolags)}\n"
+    
+    # Add the rest of the parameters
+    report += f"""
+    - **Dialog:** {parameters['dialog']}
+    - **Purpose:** {parameters['syfte']}
+    - **Product:** {parameters['product']}
+    - **Age Range:** {parameters['min_age']} to {parameters['max_age']} years
+    - **Percentage Women:** {parameters['pct_women']}%
+    - **Send Date/Time:** {parameters['day_of_week']} at {parameters['hour_of_day']}:00
+    - **Subject Line:** "{parameters['subject']}"
+
+    ## Current Campaign Predictions
+    - **Open Rate:** {formatted_predictions['current']['open_rate']:.2f}% (Confidence: {formatted_predictions['current']['confidence']['open_rate']:.0f}%)
+    - **Click Rate:** {formatted_predictions['current']['click_rate']:.2f}% (Confidence: {formatted_predictions['current']['confidence']['click_rate']:.0f}%)
+    - **Optout Rate:** {formatted_predictions['current']['optout_rate']:.2f}% (Confidence: {formatted_predictions['current']['confidence']['optout_rate']:.0f}%)
+
+    ## Subject Line Recommendation (Affects Open Rate Only)
+    - **Recommended Subject:** "{formatted_predictions['subject']['text']}"
+    - **Predicted Open Rate:** {formatted_predictions['subject']['open_rate']:.2f}% (Change: {formatted_predictions['subject']['open_rate_diff']:.2f}%)
+    - **Confidence:** {formatted_predictions['subject']['confidence']['open_rate']:.0f}%
+
+    ## Targeting Recommendation (Affects All Metrics)
+    """
+    
+    # Get the recommended bolag name
+    recommended_bolag_code = formatted_predictions['targeting']['county']  # Still 'county' for compatibility
+    recommended_bolag_name = next((name for name, code in BOLAG_VALUES.items() if code == recommended_bolag_code), recommended_bolag_code)
+    
+    report += f"""
+    - **Recommended Bolag:** {recommended_bolag_name}
+    - **Predicted Open Rate:** {formatted_predictions['targeting']['open_rate']:.2f}% (Change: {formatted_predictions['targeting']['open_rate_diff']:.2f}%)
+    - **Predicted Click Rate:** {formatted_predictions['targeting']['click_rate']:.2f}% (Change: {formatted_predictions['targeting']['click_rate_diff']:.2f}%)
+    - **Predicted Optout Rate:** {formatted_predictions['targeting']['optout_rate']:.2f}% (Change: {formatted_predictions['targeting']['optout_rate_diff']:.2f}%)
+    - **Confidence Levels:** Open {formatted_predictions['targeting']['confidence']['open_rate']:.0f}%, Click {formatted_predictions['targeting']['confidence']['click_rate']:.0f}%, Optout {formatted_predictions['targeting']['confidence']['optout_rate']:.0f}%
+
+    ## Combined Recommendation
+    """
+    
+    # Get the combined recommendation bolag name
+    combined_bolag_code = formatted_predictions['combined']['county']  # Still 'county' for compatibility
+    combined_bolag_name = next((name for name, code in BOLAG_VALUES.items() if code == combined_bolag_code), combined_bolag_code)
+    
+    report += f"""
+    - **Targeting:** {combined_bolag_name}
+    - **Subject:** "{formatted_predictions['combined']['subject']}"
+    - **Predicted Open Rate:** {formatted_predictions['combined']['open_rate']:.2f}% (Change: {formatted_predictions['combined']['open_rate_diff']:.2f}%)
+    - **Predicted Click Rate:** {formatted_predictions['combined']['click_rate']:.2f}% (Change: {formatted_predictions['combined']['click_rate_diff']:.2f}%)
+    - **Predicted Optout Rate:** {formatted_predictions['combined']['optout_rate']:.2f}% (Change: {formatted_predictions['combined']['optout_rate_diff']:.2f}%)
+    - **Confidence Levels:** Open {formatted_predictions['combined']['confidence']['open_rate']:.0f}%, Click {formatted_predictions['combined']['confidence']['click_rate']:.0f}%, Optout {formatted_predictions['combined']['confidence']['optout_rate']:.0f}%
+
+    ## Potential Impact
+    Implementing the combined recommendations could improve your open rate by {formatted_predictions['combined']['open_rate_diff']:.2f} percentage points,
+    which represents a {((formatted_predictions['combined']['open_rate'] - formatted_predictions['current']['open_rate']) / formatted_predictions['current']['open_rate'] * 100) if formatted_predictions['current']['open_rate'] > 0 else 0:.1f}% increase.
+    """
+    
+    return report
+
 # --- Model Training, Validation and Caching ---
 @st.cache_resource
 def build_models(customer_df, delivery_df):
