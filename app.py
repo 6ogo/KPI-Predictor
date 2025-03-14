@@ -13,7 +13,7 @@ import datetime
 # Custom modules
 from feature_engineering import extract_subject_features
 from multi_metric_model import predict_metrics, enhanced_train_multi_metric_models
-from subject_recommendation import build_subject_recommendation_model
+from subject_recommendation import build_subject_recommendation_model, generate_recommendations, format_predictions
 from visualizations import create_visualizations
 from model_metadata import track_model_performance, model_needs_retraining
 
@@ -147,11 +147,11 @@ def load_data():
     """Load and preprocess the campaign data"""
     try:
         customer_df = pd.read_csv('./data/customer_data.csv', delimiter=';')
-        delivery_df = pd.read_csv('./data/delivery_data.csv', delimiter=';')
-        
+        delivery_df = pd.read_csv('./data/delivery_data.csv', delimiter=';') 
+               
         # Basic preprocessing
         customer_df = customer_df.drop_duplicates(subset=['InternalName', 'Primary key'])
-        
+       
         # Handling column name case sensitivity by standardizing column names
         # Map upper/lowercase variations to standard form
         column_mapping = {
@@ -385,9 +385,10 @@ def validate_models(model_results, delivery_df, customer_df):
                 'subject': [row.get('Subject', 'Newsletter')]
             })
             
-            # Add subject features
-            if 'subject' in input_data.columns:
-                subject_features = extract_subject_features(input_data['subject'][0])
+            # Ensure 'Subject' is string and handle missing values
+            if 'Subject' in input_data.columns:
+                input_data['Subject'] = input_data['Subject'].fillna('').astype(str)
+                subject_features = extract_subject_features(input_data['Subject'][0])
                 for feature, value in subject_features.items():
                     input_data[feature] = value
             

@@ -110,8 +110,8 @@ def train_multi_metric_models(delivery_df, customer_df):
         
         # Define features for all models
         columns_to_drop = ['open_rate', 'click_rate', 'optout_rate', 
-                          'InternalName', 'Subject', 'subject', 'Date', 
-                          'Opens', 'Clicks', 'Optout', 'Sendouts']
+                           'InternalName', 'Subject', 'subject', 'Date', 
+                           'Opens', 'Clicks', 'Optout', 'Sendouts']
         
         features = processed_data.drop([col for col in columns_to_drop if col in processed_data.columns], 
                                       axis=1, errors='ignore')
