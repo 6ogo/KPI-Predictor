@@ -9,22 +9,29 @@
 
 ## 📋 Overview
 
-Email Campaign KPI Predictor is a machine learning-powered tool for email marketers to predict open rates and optimize campaign performance. Built specifically for Adobe Campaign data, this application helps marketing teams make data-driven decisions about targeting, subject lines, and delivery timing.
+Email Campaign KPI Predictor is a machine learning-powered tool for email marketers to predict and optimize campaign performance. Built specifically for Adobe Campaign data, this application helps marketing teams make data-driven decisions about targeting, subject lines, and delivery timing with clear metrics predictions:
+
+- **For Subject Line Optimization**: Predict Open Rate only
+- **For Targeting Optimization**: Predict Open Rate, Click Rate, and Optout Rate
 
 ## ✨ Features
 
-- **Predictive Analytics**: ML model predicts open rates based on targeting, content, and timing
+- **Multi-Metric Predictive Analytics**:
+  - Open Rate predictions for all scenarios
+  - Click Rate predictions for targeting options
+  - Optout Rate predictions for targeting options
 - **Smart Recommendations**: 
-  - Targeting optimization based on historical performance
-  - Subject line recommendations using NLP and clustering techniques
-  - Send time optimization
+  - Targeting optimization with complete KPI impact assessment
+  - Subject line recommendations focusing on open rate optimization
+  - Combined recommendations for maximum impact
 - **Interactive Visualizations**:
   - Performance comparison charts
   - Feature importance analysis
   - Performance radar charts
-  - Historical trend analysis
+  - Metric-specific historical trends
+  - Company (Bolag) segment analysis
 - **Comprehensive Reporting**:
-  - Exportable predictions and recommendations
+  - Exportable predictions with detailed metrics breakdown
   - Downloadable campaign reports
   - Model performance metrics
 
@@ -60,20 +67,20 @@ Required columns:
 - `Sendouts` (Total sendout count for delivery)
 - `Opens` (Total Opens count in delivery)
 - `Clicks` (Total Clicks count in delivery)
-- `Optout` (Total unsubscribe count in delivery)
+- `Optouts` (Total unsubscribe count in delivery)
 - `Dialog`, `Syfte`, `Produkt` (Campaign metadata)
 
 ### Customer Level Data
 File name: `customer_data.csv`
 Required columns:
 - `Primary key` (Customer identifier)
+- `InternalName` (Delivery identifier to link with delivery data)
 - `OptOut` (OptOut in delivery 1/0)
 - `Open` (Opened delivery 1/0)
 - `Click` (Clicked in delivery 1/0)
 - `Gender` (Customer gender)
 - `Age` (Customer age)
 - `Bolag` (Customer company connection)
-- `InternalName` (Delivery identifier to link with delivery data)
 
 ## 🚀 Usage
 
@@ -88,17 +95,20 @@ streamlit run app.py
 
 4. Use the interface to:
    - Input campaign parameters
-   - View predictions and recommendations
-   - Explore performance insights
-   - Export reports and predictions
+   - View predictions and recommendations for:
+     - Subject line (open rate only)
+     - Targeting (open, click, and optout rates)
+     - Combined approach (all metrics)
+   - Explore performance insights by specific metrics
+   - Export detailed reports and predictions
 
 ## 🔍 Model Information
 
-The application trains and evaluates multiple machine learning models:
+The application trains separate models for different metrics:
 
-- **XGBoost Regressor**: Gradient boosting framework for regression
-- **LightGBM**: Gradient boosting framework optimized for efficiency
-- **Random Forest**: Ensemble learning method
+- **Open Rate Model**: Predicts email open rates based on all features
+- **Click Rate Model**: Predicts click rates based on targeting and content features
+- **Optout Rate Model**: Predicts unsubscribe rates based on targeting and content features
 
 Feature engineering includes:
 - Temporal features (day of week, time of day)
@@ -112,8 +122,9 @@ Feature engineering includes:
 email-campaign-kpi-predictor/
 ├── app.py                     # Main Streamlit application
 ├── feature_engineering.py     # Feature engineering functions
-├── model_training.py          # Model training and evaluation
-├── subject_recommendation.py  # Subject line recommendation logic
+├── multi_metric_model.py      # Models for different metrics
+├── recommendations.py         # Recommendation generation
+├── subject_recommendation.py  # Subject line optimization
 ├── visualizations.py          # Visualization functions
 ├── requirements.txt           # Python dependencies
 ├── delivery_data.csv          # Delivery-level data from Adobe Campaign
@@ -123,38 +134,53 @@ email-campaign-kpi-predictor/
 
 ## 🧩 Core Components
 
+### Multi-Metric Model Module
+- Trains separate models for open rate, click rate, and optout rate
+- Provides specialized predictions for different optimization scenarios
+- Handles different feature importance for different metrics
+
 ### Feature Engineering Module
 - Processes raw data from Adobe Campaign
 - Creates derived features and time-based metrics
-- Handles text analysis for subject lines
+- Specializes in subject line analysis for open rate prediction
 - Manages categorical encoding
 
-### Model Training Module
-- Trains multiple model types and selects the best performer
-- Performs hyperparameter tuning with cross-validation
-- Calculates feature importance
-- Evaluates model performance
-
-### Subject Recommendation Engine
-- Uses clustering to identify successful patterns
-- Extracts common elements from high-performing subject lines
-- Provides data-driven recommendations for new campaigns
+### Recommendations Engine
+- Delivers metric-specific optimizations:
+  - Subject recommendations focus on open rate
+  - Targeting recommendations provide complete KPI assessment
+- Combines recommendations for maximum overall impact
 
 ### Visualization Dashboard
-- Creates interactive charts for campaign analysis
-- Visualizes predicted performance improvements
-- Shows historical trends and patterns
-- Highlights feature importance
+- Creates metric-specific visualizations
+- Shows impact on different KPIs separately
+- Provides comparative analysis across recommendations
+- Visualizes historical trends by metric
 
 ## 📈 Example Results
 
 The application provides several key insights:
 
-1. **Predicted Open Rate**: Baseline prediction for current settings
-2. **Targeting Recommendations**: Optimal targeting to maximize open rate
-3. **Subject Line Optimization**: Recommended subject line patterns and specific text
-4. **Combined Improvement Potential**: Expected lift from implementing all recommendations
-5. **Feature Importance**: Understanding which factors most impact open rates
+1. **Predicted Open Rate for Subject Line Optimization**:
+   - Current subject performance
+   - Recommended subject with predicted open rate improvement
+   - No predictions for click or optout rates (as subject primarily affects opens)
+
+2. **Full KPI Predictions for Targeting Optimization**:
+   - Predicted open rates
+   - Predicted click rates
+   - Predicted optout rates
+
+3. **Combined Recommendations**:
+   - Best targeting option with best subject line
+   - Complete KPI impact assessment (open, click, optout)
+   - Relative improvement over current campaign
+
+4. **Customer Segment Analysis by Company (Bolag)**:
+   - Open rates by company/organization
+   - Click rates by company/organization
+   - Optout rates by company/organization
+   - Comparative analysis across top companies
 
 ## 📄 License
 

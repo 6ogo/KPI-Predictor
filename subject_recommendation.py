@@ -1,105 +1,123 @@
-def build_subject_recommendation_model(delivery_df):
-    """Build a model to recommend high-performing subject lines"""
-    import pandas as pd
-    import numpy as np
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.cluster import KMeans
-    from sklearn.preprocessing import StandardScaler
+def generate_recommendations(input_data, models, delivery_df, subject_patterns=None):
+    """
+    Generate recommendations for targeting and subject lines
     
-    # Check if we have enough data for meaningful analysis
-    if len(delivery_df) < 10:
-        return None, None
+    Parameters:
+    - input_data: DataFrame with current input parameters
+    - models: Dict of trained models for different metrics
+    - delivery_df: DataFrame with historical delivery data
+    - subject_patterns: Optional subject line patterns from clustering
     
-    # Process subject lines using TF-IDF
-    tfidf = TfidfVectorizer(max_features=50, stop_words=['english', 'swedish'])
-    subject_vectors = tfidf.fit_transform(delivery_df['subject'].fillna(''))
+    Returns:
+    - Dictionary with recommendations and predictions
+    """
+    results = {}
     
-    # Combine with open rate for analysis
-    subject_data = pd.DataFrame(subject_vectors.toarray(), columns=tfidf.get_feature_names_out())
-    subject_data['open_rate'] = delivery_df['open_rate']
+    # 1. Current predictions (baseline)
+    current_predictions = predict_metrics(input_data, models)
+    results['current'] = current_predictions
     
-    # Cluster subject lines (find patterns)
-    n_clusters = min(5, len(delivery_df) // 2)  # Avoid too many clusters for small datasets
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-    subject_data['cluster'] = kmeans.fit_predict(subject_vectors)
+    # 2. Targeting recommendations
+    # Find best performing county based on historical data
+    best_county = delivery_df.groupby('county')['open_rate'].mean().idxmax() if 'county' in delivery_df.columns else "Stockholm"
     
-    # Find best performing clusters
-    cluster_performance = subject_data.groupby('cluster')['open_rate'].mean().sort_values(ascending=False)
+    # Create input with recommended targeting
+    targeting_data = input_data.copy()
+    targeting_data['county'] = best_county
     
-    # For each cluster, get example subject lines that performed well
-    recommended_subjects = []
-    for cluster in cluster_performance.index:
-        # Get subjects from this cluster, sorted by open rate
-        cluster_mask = subject_data['cluster'] == cluster
-        if cluster_mask.sum() > 0:
-            cluster_subjects = pd.DataFrame({
-                'subject': delivery_df.loc[cluster_mask.values, 'subject'],
-                'open_rate': subject_data.loc[cluster_mask, 'open_rate']
-            }).sort_values('open_rate', ascending=False)
-            
-            # Take the top performing subject from this cluster
-            if len(cluster_subjects) > 0:
-                top_subject = cluster_subjects.iloc[0]['subject']
-                expected_open_rate = cluster_subjects.iloc[0]['open_rate']
-                recommended_subjects.append({
-                    'subject': top_subject,
-                    'expected_open_rate': expected_open_rate,
-                    'cluster': cluster
-                })
+    # Predict all metrics for targeting recommendations
+    targeting_predictions = predict_metrics(targeting_data, models, 
+                                            metrics=['open_rate', 'click_rate', 'optout_rate'])
     
-    # Sort recommendations by expected open rate
-    recommended_subjects = sorted(recommended_subjects, key=lambda x: x['expected_open_rate'], reverse=True)
+    results['targeting'] = {
+        'county': best_county,
+        'predictions': targeting_predictions
+    }
     
-    # Extract subject line patterns that work well
-    subject_patterns = []
-    for cluster in cluster_performance.index[:3]:  # Top 3 clusters
-        # Get all subjects in this cluster
-        cluster_subjects = delivery_df.loc[subject_data['cluster'] == cluster, 'subject'].tolist()
-        
-        # Find common words/patterns
-        if cluster_subjects:
-            common_words = set(cluster_subjects[0].lower().split())
-            for subject in cluster_subjects[1:]:
-                common_words &= set(subject.lower().split())
-            
-            subject_patterns.append({
-                'cluster': cluster,
-                'avg_open_rate': cluster_performance[cluster],
-                'common_words': list(common_words),
-                'example_subjects': cluster_subjects[:3]
-            })
+    # 3. Subject line recommendation (only predict open_rate)
+    from subject_recommendation import recommend_subject
     
-    return recommended_subjects, subject_patterns
+    current_subject = input_data['subject'][0] if 'subject' in input_data else ""
+    recommended_subject = recommend_subject(current_subject, delivery_df, 
+                                            subject_patterns=subject_patterns)
+    
+    # Extract features from recommended subject
+    from feature_engineering import extract_subject_features
+    recommended_subject_features = extract_subject_features(recommended_subject)
+    
+    # Create input with recommended subject
+    subject_data = input_data.copy()
+    for feature, value in recommended_subject_features.items():
+        if feature in subject_data.columns:
+            subject_data[feature] = value
+    
+    # Only predict open_rate for subject line recommendations
+    subject_prediction = models['open_rate'].predict(subject_data)[0]
+    
+    results['subject'] = {
+        'text': recommended_subject,
+        'open_rate': subject_prediction
+    }
+    
+    # 4. Combined recommendation (targeting + subject)
+    # Create combined input data
+    combined_data = targeting_data.copy()
+    for feature, value in recommended_subject_features.items():
+        if feature in combined_data.columns:
+            combined_data[feature] = value
+    
+    # Predict all metrics for the combined recommendation
+    combined_predictions = predict_metrics(combined_data, models, 
+                                           metrics=['open_rate', 'click_rate', 'optout_rate'])
+    
+    results['combined'] = {
+        'county': best_county,
+        'subject': recommended_subject,
+        'predictions': combined_predictions
+    }
+    
+    return results
 
-def recommend_subject(input_subject, delivery_df, recommended_subjects, subject_patterns):
-    """Generate subject line recommendations based on patterns and top performers"""
-    if not recommended_subjects:
-        # Fallback to basic recommendations if no model available
-        if len(input_subject) < 30:
-            return "Your Exclusive Offer: Don't Miss Out!"
-        elif "?" not in input_subject:
-            return input_subject.strip() + "?"
-        else:
-            return input_subject
+
+def format_predictions(recommendations):
+    """Format prediction results for display"""
+    formatted = {}
     
-    # First try to match input with known patterns
-    input_words = set(input_subject.lower().split())
+    # Current predictions
+    formatted['current'] = {
+        'open_rate': recommendations['current'].get('open_rate', 0),
+        'click_rate': recommendations['current'].get('click_rate', 0),
+        'optout_rate': recommendations['current'].get('optout_rate', 0)
+    }
     
-    best_recommendation = None
-    highest_open_rate = 0
+    # Targeting recommendations
+    formatted['targeting'] = {
+        'county': recommendations['targeting']['county'],
+        'open_rate': recommendations['targeting']['predictions'].get('open_rate', 0),
+        'click_rate': recommendations['targeting']['predictions'].get('click_rate', 0),
+        'optout_rate': recommendations['targeting']['predictions'].get('optout_rate', 0),
+        'open_rate_diff': recommendations['targeting']['predictions'].get('open_rate', 0) - formatted['current']['open_rate'],
+        'click_rate_diff': recommendations['targeting']['predictions'].get('click_rate', 0) - formatted['current']['click_rate'],
+        'optout_rate_diff': recommendations['targeting']['predictions'].get('optout_rate', 0) - formatted['current']['optout_rate']
+    }
     
-    # Check if input matches any known good patterns
-    for pattern in subject_patterns:
-        if set(pattern['common_words']).issubset(input_words):
-            # Input contains pattern words, find the best subject from this cluster
-            for subj in recommended_subjects:
-                if subj['cluster'] == pattern['cluster'] and subj['expected_open_rate'] > highest_open_rate:
-                    best_recommendation = subj['subject']
-                    highest_open_rate = subj['expected_open_rate']
+    # Subject recommendations (only open rate)
+    formatted['subject'] = {
+        'text': recommendations['subject']['text'],
+        'open_rate': recommendations['subject']['open_rate'],
+        'open_rate_diff': recommendations['subject']['open_rate'] - formatted['current']['open_rate']
+    }
     
-    # If no pattern match, return the top performing subject
-    if not best_recommendation and recommended_subjects:
-        best_recommendation = recommended_subjects[0]['subject']
+    # Combined recommendations
+    formatted['combined'] = {
+        'county': recommendations['combined']['county'],
+        'subject': recommendations['combined']['subject'],
+        'open_rate': recommendations['combined']['predictions'].get('open_rate', 0),
+        'click_rate': recommendations['combined']['predictions'].get('click_rate', 0),
+        'optout_rate': recommendations['combined']['predictions'].get('optout_rate', 0),
+        'open_rate_diff': recommendations['combined']['predictions'].get('open_rate', 0) - formatted['current']['open_rate'],
+        'click_rate_diff': recommendations['combined']['predictions'].get('click_rate', 0) - formatted['current']['click_rate'],
+        'optout_rate_diff': recommendations['combined']['predictions'].get('optout_rate', 0) - formatted['current']['optout_rate']
+    }
     
-    # If still no recommendation (shouldn't happen), use the original
-    return best_recommendation or input_subject
+    return formatted
