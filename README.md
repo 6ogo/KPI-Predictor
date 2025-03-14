@@ -1,9 +1,6 @@
 # Email Campaign KPI Predictor
 
 ## 📧 Advanced ML tool for predicting and optimizing email marketing campaigns
-
-![Email Campaign KPI Predictor Banner](https://via.placeholder.com/1200x300)
-
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.15.0-FF4B4B)](https://streamlit.io/)
 [![XGBoost](https://img.shields.io/badge/XGBoost-1.6.2-006ACC)](https://xgboost.readthedocs.io/)
@@ -35,8 +32,8 @@ Email Campaign KPI Predictor is a machine learning-powered tool for email market
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/email-campaign-kpi-predictor.git
-cd email-campaign-kpi-predictor
+git clone https://github.com/6ogo/KPI-Predictor.git
+cd KPI-Predictor
 ```
 
 2. Create a virtual environment and activate it:
@@ -57,24 +54,26 @@ The application requires two CSV files exported from Adobe Campaign:
 ### Delivery Level Data
 File name: `delivery_data.csv`
 Required columns:
-- `InternalName` (delivery identifier)
-- `subject` (email subject line)
-- `Contact date` (date and time of delivery)
-- `Utskick` (sends count)
-- `Opens` (opens count)
-- `Clicks` (clicks count)
-- `Optout` (unsubscribe count)
-- `county` (targeting region)
-- `Dialog`, `Syfte`, `Produkt`, `Bolag` (campaign metadata)
+- `InternalName` (Delivery identifier)
+- `Subject` (Email subject line)
+- `Date` (Date and time of delivery)
+- `Sendouts` (Total sendout count for delivery)
+- `Opens` (Total Opens count in delivery)
+- `Clicks` (Total Clicks count in delivery)
+- `Optout` (Total unsubscribe count in delivery)
+- `Dialog`, `Syfte`, `Produkt` (Campaign metadata)
 
 ### Customer Level Data
 File name: `customer_data.csv`
 Required columns:
-- `Primary k isWoman OptOut` (customer identifier)
-- `Gender` (customer gender)
-- `Age` (customer age)
-- `InternalName` (delivery identifier to link with delivery data)
-- `Dialog`, `Syfte`, `Product`, `Bolag` (campaign metadata)
+- `Primary key` (Customer identifier)
+- `OptOut` (OptOut in delivery 1/0)
+- `Open` (Opened delivery 1/0)
+- `Click` (Clicked in delivery 1/0)
+- `Gender` (Customer gender)
+- `Age` (Customer age)
+- `Bolag` (Customer company connection)
+- `InternalName` (Delivery identifier to link with delivery data)
 
 ## 🚀 Usage
 
