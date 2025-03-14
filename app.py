@@ -159,98 +159,6 @@ PRODUKT_VALUES = {
     "PERSON OSV": ["P_OSV_", "PERSON OSV"]
 }
 
-def campaign_parameter_input(cat_values):
-    """
-    Create the campaign parameter input section with correct Bolag terminology.
-    """
-    st.subheader("Campaign Settings")
-    
-    # Dialog, Syfte, Produkt dropdowns
-    dialog_options = list(DIALOG_VALUES.keys())
-    selected_dialog = st.selectbox("Dialog", options=dialog_options)
-    dialog_code = DIALOG_VALUES[selected_dialog][0]
-    
-    syfte_options = list(SYFTE_VALUES.keys())
-    selected_syfte = st.selectbox("Campaign Purpose", options=syfte_options)
-    syfte_code = SYFTE_VALUES[selected_syfte][0]
-    
-    produkt_options = list(PRODUKT_VALUES.keys())
-    selected_product = st.selectbox("Product", options=produkt_options)
-    product_code = PRODUKT_VALUES[selected_product][0]
-    
-    # Target Bolag selection
-    bolag_options = list(BOLAG_VALUES.keys())
-    selected_bolag = st.selectbox(
-        "Target Bolag",
-        options=bolag_options,
-        help="Select primary Bolag region for targeting"
-    )
-    bolag_code = BOLAG_VALUES[selected_bolag]
-    
-    # Exclude additional Bolags multiselect
-    remaining_bolags = [b for b in bolag_options if b != selected_bolag]
-    excluded_bolags = st.multiselect(
-        "Exclude Additional Bolag (Optional)",
-        options=remaining_bolags,
-        help="Select Bolag regions to exclude from targeting"
-    )
-    
-    excluded_bolag_codes = [BOLAG_VALUES[bolag] for bolag in excluded_bolags]
-    
-    # Demographics - Age span instead of average age
-    st.subheader("Audience & Demographics")
-    age_min, age_max = st.slider(
-        "Age Span", 
-        min_value=18, 
-        max_value=100, 
-        value=(25, 65),
-        help="Select the age range of targeted recipients"
-    )
-    
-    pct_women = st.slider(
-        "Percentage Women (%)", 
-        0, 100, 50,
-        help="Gender distribution of the target audience"
-    )
-    
-    # Send time
-    st.subheader("Scheduling")
-    send_date = st.date_input("Send Date", datetime.date.today())
-    send_time = st.time_input("Send Time", datetime.time(9, 0))
-    
-    # Convert to day of week and hour
-    day_of_week = send_date.weekday()
-    hour_of_day = send_time.hour
-    is_weekend = 1 if day_of_week >= 5 else 0  # 5=Sat, 6=Sun
-    
-    # Subject line
-    st.subheader("Email Content")
-    subject = st.text_input("Subject Line", "Check out our latest offers!")
-    
-    # Extract subject features
-    from feature_engineering import extract_subject_features
-    subject_features = extract_subject_features(subject)
-    
-    # Create parameter dictionary to return
-    parameters = {
-        'dialog': dialog_code,
-        'syfte': syfte_code,
-        'product': product_code,
-        'bolag': bolag_code,
-        'excluded_bolags': excluded_bolag_codes,
-        'avg_age': (age_min + age_max) / 2,  # Calculate average for model compatibility
-        'min_age': age_min,
-        'max_age': age_max,
-        'pct_women': pct_women,
-        'day_of_week': day_of_week,
-        'hour_of_day': hour_of_day,
-        'is_weekend': is_weekend,
-        'subject': subject,
-        'subject_features': subject_features
-    }
-    
-    return parameters
-
 # Set page config
 st.set_page_config(
     page_title="Email Campaign KPI Predictor",
@@ -338,9 +246,1331 @@ def load_data():
         st.error(f"Error loading data: {e}")
         return None, None
 
-# This function should be integrated into the data export tab section of your code
-# and replace the existing report generation code
+def campaign_parameter_input(cat_values):
+    """
+    Create the campaign parameter input section without target bolag field.
+    Now only focusing on excluded bolags, as we're targeting all bolags except excluded ones.
+    """
+    st.subheader("Campaign Settings")
+    
+    # Dialog, Syfte, Produkt dropdowns
+    dialog_options = list(DIALOG_VALUES.keys())
+    selected_dialog = st.selectbox("Dialog", options=dialog_options)
+    dialog_code = DIALOG_VALUES[selected_dialog][0]
+    
+    syfte_options = list(SYFTE_VALUES.keys())
+    selected_syfte = st.selectbox("Campaign Purpose", options=syfte_options)
+    syfte_code = SYFTE_VALUES[selected_syfte][0]
+    
+    produkt_options = list(PRODUKT_VALUES.keys())
+    selected_product = st.selectbox("Product", options=produkt_options)
+    product_code = PRODUKT_VALUES[selected_product][0]
+    
+    # Exclude Bolags multiselect - this becomes the primary targeting control
+    bolag_options = list(BOLAG_VALUES.keys())
+    excluded_bolags = st.multiselect(
+        "Exclude Bolag Regions",
+        options=bolag_options,
+        help="Select Bolag regions to exclude from targeting. By default, we target all regions."
+    )
+    
+    excluded_bolag_codes = [BOLAG_VALUES[bolag] for bolag in excluded_bolags]
+    
+    # Demographics - Age span instead of average age
+    st.subheader("Audience & Demographics")
+    age_min, age_max = st.slider(
+        "Age Span", 
+        min_value=18, 
+        max_value=100, 
+        value=(25, 65),
+        help="Select the age range of targeted recipients"
+    )
+    
+    pct_women = st.slider(
+        "Percentage Women (%)", 
+        0, 100, 50,
+        help="Gender distribution of the target audience"
+    )
+    
+    # Send time
+    st.subheader("Scheduling")
+    send_date = st.date_input("Send Date", datetime.date.today())
+    send_time = st.time_input("Send Time", datetime.time(9, 0))
+    
+    # Convert to day of week and hour
+    day_of_week = send_date.weekday()
+    hour_of_day = send_time.hour
+    is_weekend = 1 if day_of_week >= 5 else 0  # 5=Sat, 6=Sun
+    
+    # Subject line
+    st.subheader("Email Content")
+    subject = st.text_input("Subject Line", "Check out our latest offers!")
+    
+    # Extract subject features
+    from feature_engineering import extract_subject_features
+    subject_features = extract_subject_features(subject)
+    
+    # Create parameter dictionary to return
+    parameters = {
+        'dialog': dialog_code,
+        'syfte': syfte_code,
+        'product': product_code,
+        'excluded_bolags': excluded_bolag_codes,
+        'avg_age': (age_min + age_max) / 2,  # Calculate average for model compatibility
+        'min_age': age_min,
+        'max_age': age_max,
+        'pct_women': pct_women,
+        'day_of_week': day_of_week,
+        'hour_of_day': hour_of_day,
+        'is_weekend': is_weekend,
+        'subject': subject,
+        'subject_features': subject_features
+    }
+    
+    return parameters
 
+def analyze_age_groups(customer_df, delivery_df):
+    """
+    Analyze campaign performance by age groups
+    
+    Parameters:
+    - customer_df: DataFrame with customer data including age information
+    - delivery_df: DataFrame with delivery metrics
+    
+    Returns:
+    - DataFrame with age group performance metrics
+    - Plotly figure showing age group performance
+    """
+    import pandas as pd
+    import plotly.express as px
+    import numpy as np
+    
+    # Check if Age column exists
+    if 'Age' not in customer_df.columns:
+        return None, None
+    
+    # Merge customer data with delivery data
+    # First compute average metrics per delivery
+    delivery_metrics = delivery_df[['InternalName', 'open_rate', 'click_rate', 'optout_rate']].copy()
+    
+    # Join with customer data
+    merged_data = customer_df.merge(delivery_metrics, on='InternalName', how='left')
+    
+    # Create age groups
+    bins = [0, 18, 25, 35, 45, 55, 65, 75, 100]
+    labels = ['<18', '18-24', '25-34', '35-44', '45-54', '55-64', '65-74', '75+']
+    merged_data['age_group'] = pd.cut(merged_data['Age'], bins=bins, labels=labels, right=False)
+    
+    # Aggregate metrics by age group
+    age_group_metrics = merged_data.groupby('age_group').agg(
+        avg_open_rate=('open_rate', 'mean'),
+        avg_click_rate=('click_rate', 'mean'),
+        avg_optout_rate=('optout_rate', 'mean'),
+        count=('Age', 'count')
+    ).reset_index()
+    
+    # Fill NaN values
+    age_group_metrics.fillna(0, inplace=True)
+    
+    # Create visualization
+    metrics_data = []
+    for _, row in age_group_metrics.iterrows():
+        metrics_data.extend([
+            {'age_group': row['age_group'], 'Metric': 'Open Rate', 'Value': row['avg_open_rate'], 'Count': row['count']},
+            {'age_group': row['age_group'], 'Metric': 'Click Rate', 'Value': row['avg_click_rate'], 'Count': row['count']},
+            {'age_group': row['age_group'], 'Metric': 'Optout Rate', 'Value': row['avg_optout_rate'], 'Count': row['count']}
+        ])
+    
+    metrics_df = pd.DataFrame(metrics_data)
+    
+    # Create visualization
+    fig = px.bar(
+        metrics_df,
+        x='age_group',
+        y='Value',
+        color='Metric',
+        barmode='group',
+        text=metrics_df['Value'].round(2).astype(str) + '%',
+        title='Campaign Performance by Age Group',
+        hover_data=['Count'],
+        labels={'Value': 'Rate (%)', 'age_group': 'Age Group'}
+    )
+    
+    fig.update_traces(textposition='outside')
+    fig.update_layout(
+        xaxis_title='Age Group',
+        yaxis_title='Rate (%)',
+        legend_title='Metric'
+    )
+    
+    return age_group_metrics, fig
+
+def get_best_age_groups(age_group_metrics):
+    """
+    Get the best performing age groups for each metric
+    
+    Parameters:
+    - age_group_metrics: DataFrame with age group performance metrics
+    
+    Returns:
+    - Dictionary with best age groups for each metric
+    """
+    best_age_groups = {}
+    
+    if age_group_metrics is not None:
+        # Best for open rate
+        best_open = age_group_metrics.loc[age_group_metrics['avg_open_rate'].idxmax()]
+        best_age_groups['open_rate'] = {
+            'group': best_open['age_group'],
+            'rate': best_open['avg_open_rate']
+        }
+        
+        # Best for click rate
+        best_click = age_group_metrics.loc[age_group_metrics['avg_click_rate'].idxmax()]
+        best_age_groups['click_rate'] = {
+            'group': best_click['age_group'],
+            'rate': best_click['avg_click_rate']
+        }
+        
+        # Best for optout rate (lowest is best)
+        best_optout = age_group_metrics.loc[age_group_metrics['avg_optout_rate'].idxmin()]
+        best_age_groups['optout_rate'] = {
+            'group': best_optout['age_group'],
+            'rate': best_optout['avg_optout_rate']
+        }
+    
+    return best_age_groups
+
+def analyze_time_patterns(delivery_df):
+    """
+    Analyze campaign performance by day of week and hour of day
+    
+    Parameters:
+    - delivery_df: DataFrame with delivery metrics
+    
+    Returns:
+    - Dictionary with day and time analysis results and figures
+    """
+    import pandas as pd
+    import plotly.express as px
+    import numpy as np
+    
+    results = {}
+    
+    # Check if Date column exists
+    if 'Date' not in delivery_df.columns:
+        return {'error': 'Date column not found in delivery data'}
+    
+    # Ensure Date is datetime
+    delivery_df['Date'] = pd.to_datetime(delivery_df['Date'])
+    
+    # Add day of week
+    if 'day_of_week' not in delivery_df.columns:
+        delivery_df['day_of_week'] = delivery_df['Date'].dt.dayofweek
+    
+    # Add hour of day
+    if 'hour_of_day' not in delivery_df.columns:
+        delivery_df['hour_of_day'] = delivery_df['Date'].dt.hour
+    
+    # Get day of week names for better display
+    day_names = {
+        0: 'Monday',
+        1: 'Tuesday',
+        2: 'Wednesday',
+        3: 'Thursday',
+        4: 'Friday',
+        5: 'Saturday',
+        6: 'Sunday'
+    }
+    
+    delivery_df['day_name'] = delivery_df['day_of_week'].map(day_names)
+    
+    # Day of week analysis
+    day_metrics = delivery_df.groupby('day_name').agg(
+        avg_open_rate=('open_rate', 'mean'),
+        avg_click_rate=('click_rate', 'mean'),
+        avg_optout_rate=('optout_rate', 'mean'),
+        count=('InternalName', 'count')
+    ).reset_index()
+    
+    # Hour of day analysis
+    hour_metrics = delivery_df.groupby('hour_of_day').agg(
+        avg_open_rate=('open_rate', 'mean'),
+        avg_click_rate=('click_rate', 'mean'),
+        avg_optout_rate=('optout_rate', 'mean'),
+        count=('InternalName', 'count')
+    ).reset_index()
+    
+    # Daily trends (time series)
+    delivery_df['date_only'] = delivery_df['Date'].dt.date
+    daily_metrics = delivery_df.groupby('date_only').agg(
+        avg_open_rate=('open_rate', 'mean'),
+        avg_click_rate=('click_rate', 'mean'),
+        avg_optout_rate=('optout_rate', 'mean'),
+        count=('InternalName', 'count')
+    ).reset_index()
+    
+    # Find best and worst days/times
+    best_worst = {}
+    
+    # For open rate
+    best_day_open = day_metrics.loc[day_metrics['avg_open_rate'].idxmax()]
+    worst_day_open = day_metrics.loc[day_metrics['avg_open_rate'].idxmin()]
+    
+    best_hour_open = hour_metrics.loc[hour_metrics['avg_open_rate'].idxmax()]
+    worst_hour_open = hour_metrics.loc[hour_metrics['avg_open_rate'].idxmin()]
+    
+    best_worst['open_rate'] = {
+        'best_day': best_day_open['day_name'],
+        'best_day_rate': best_day_open['avg_open_rate'],
+        'worst_day': worst_day_open['day_name'],
+        'worst_day_rate': worst_day_open['avg_open_rate'],
+        'best_hour': best_hour_open['hour_of_day'],
+        'best_hour_rate': best_hour_open['avg_open_rate'],
+        'worst_hour': worst_hour_open['hour_of_day'],
+        'worst_hour_rate': worst_hour_open['avg_open_rate']
+    }
+    
+    # For click rate
+    best_day_click = day_metrics.loc[day_metrics['avg_click_rate'].idxmax()]
+    worst_day_click = day_metrics.loc[day_metrics['avg_click_rate'].idxmin()]
+    
+    best_hour_click = hour_metrics.loc[hour_metrics['avg_click_rate'].idxmax()]
+    worst_hour_click = hour_metrics.loc[hour_metrics['avg_click_rate'].idxmin()]
+    
+    best_worst['click_rate'] = {
+        'best_day': best_day_click['day_name'],
+        'best_day_rate': best_day_click['avg_click_rate'],
+        'worst_day': worst_day_click['day_name'],
+        'worst_day_rate': worst_day_click['avg_click_rate'],
+        'best_hour': best_hour_click['hour_of_day'],
+        'best_hour_rate': best_hour_click['avg_click_rate'],
+        'worst_hour': worst_hour_click['hour_of_day'],
+        'worst_hour_rate': worst_hour_click['avg_click_rate']
+    }
+    
+    # For optout rate (lower is better)
+    best_day_optout = day_metrics.loc[day_metrics['avg_optout_rate'].idxmin()]
+    worst_day_optout = day_metrics.loc[day_metrics['avg_optout_rate'].idxmax()]
+    
+    best_hour_optout = hour_metrics.loc[hour_metrics['avg_optout_rate'].idxmin()]
+    worst_hour_optout = hour_metrics.loc[hour_metrics['avg_optout_rate'].idxmax()]
+    
+    best_worst['optout_rate'] = {
+        'best_day': best_day_optout['day_name'],
+        'best_day_rate': best_day_optout['avg_optout_rate'],
+        'worst_day': worst_day_optout['day_name'],
+        'worst_day_rate': worst_day_optout['avg_optout_rate'],
+        'best_hour': best_hour_optout['hour_of_day'],
+        'best_hour_rate': best_hour_optout['avg_optout_rate'],
+        'worst_hour': worst_hour_optout['hour_of_day'],
+        'worst_hour_rate': worst_hour_optout['avg_optout_rate']
+    }
+    
+    # Create visualizations
+    
+    # Day of week charts
+    day_metrics_melted = pd.melt(
+        day_metrics, 
+        id_vars=['day_name', 'count'], 
+        value_vars=['avg_open_rate', 'avg_click_rate', 'avg_optout_rate'],
+        var_name='Metric', 
+        value_name='Rate'
+    )
+    
+    # Make sure days are in correct order
+    day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    day_metrics_melted['day_name'] = pd.Categorical(
+        day_metrics_melted['day_name'], 
+        categories=day_order, 
+        ordered=True
+    )
+    
+    day_metrics_melted = day_metrics_melted.sort_values('day_name')
+    
+    # Map metric names for better display
+    metric_names = {
+        'avg_open_rate': 'Open Rate',
+        'avg_click_rate': 'Click Rate',
+        'avg_optout_rate': 'Optout Rate'
+    }
+    
+    day_metrics_melted['Metric'] = day_metrics_melted['Metric'].map(metric_names)
+    
+    fig_days = px.line(
+        day_metrics_melted,
+        x='day_name',
+        y='Rate',
+        color='Metric',
+        markers=True,
+        title='Campaign Performance by Day of Week',
+        hover_data=['count']
+    )
+    
+    fig_days.update_layout(
+        xaxis_title='Day of Week',
+        yaxis_title='Rate (%)'
+    )
+    
+    # Hour of day charts
+    hour_metrics_melted = pd.melt(
+        hour_metrics, 
+        id_vars=['hour_of_day', 'count'], 
+        value_vars=['avg_open_rate', 'avg_click_rate', 'avg_optout_rate'],
+        var_name='Metric', 
+        value_name='Rate'
+    )
+    
+    hour_metrics_melted['Metric'] = hour_metrics_melted['Metric'].map(metric_names)
+    
+    fig_hours = px.line(
+        hour_metrics_melted,
+        x='hour_of_day',
+        y='Rate',
+        color='Metric',
+        markers=True,
+        title='Campaign Performance by Hour of Day',
+        hover_data=['count']
+    )
+    
+    fig_hours.update_layout(
+        xaxis_title='Hour of Day (24h)',
+        yaxis_title='Rate (%)'
+    )
+    
+    # Daily trend charts
+    daily_metrics_melted = pd.melt(
+        daily_metrics, 
+        id_vars=['date_only', 'count'], 
+        value_vars=['avg_open_rate', 'avg_click_rate', 'avg_optout_rate'],
+        var_name='Metric', 
+        value_name='Rate'
+    )
+    
+    daily_metrics_melted['Metric'] = daily_metrics_melted['Metric'].map(metric_names)
+    
+    fig_daily = px.line(
+        daily_metrics_melted,
+        x='date_only',
+        y='Rate',
+        color='Metric',
+        title='Daily Campaign Performance Trends',
+        hover_data=['count']
+    )
+    
+    fig_daily.update_layout(
+        xaxis_title='Date',
+        yaxis_title='Rate (%)'
+    )
+    
+    # Save results
+    results['day_metrics'] = day_metrics
+    results['hour_metrics'] = hour_metrics
+    results['daily_metrics'] = daily_metrics
+    results['best_worst'] = best_worst
+    results['fig_days'] = fig_days
+    results['fig_hours'] = fig_hours
+    results['fig_daily'] = fig_daily
+    
+    return results
+
+def create_forecast_tab(customer_df, delivery_df, formatted_predictions, parameters, BOLAG_VALUES):
+    """
+    Create the forecast tab content that shows potential reach and performance improvements
+    
+    Parameters:
+    - customer_df: DataFrame with customer data
+    - delivery_df: DataFrame with delivery metrics
+    - formatted_predictions: Formatted prediction results
+    - parameters: Input parameters from the form
+    - BOLAG_VALUES: Dictionary mapping bolag names to codes
+    
+    Returns:
+    - None (displays content directly via Streamlit)
+    """
+    import streamlit as st
+    import pandas as pd
+    import plotly.express as px
+    import plotly.graph_objects as go
+    import numpy as np
+    
+    st.header("Campaign Performance Forecast")
+    
+    # Calculate total potential reach
+    total_customers = len(customer_df['Primary key'].unique()) if 'Primary key' in customer_df.columns else 0
+    
+    # Get excluded bolag names
+    excluded_bolag_names = []
+    if parameters['excluded_bolags']:
+        excluded_bolag_names = [
+            name for name, code in BOLAG_VALUES.items() 
+            if code in parameters['excluded_bolags']
+        ]
+    
+    # Calculate customers by bolag
+    bolag_counts = None
+    if 'Bolag' in customer_df.columns:
+        bolag_counts = customer_df['Bolag'].value_counts().reset_index()
+        bolag_counts.columns = ['Bolag', 'Count']
+        
+        # Map bolag codes to names if needed
+        bolag_mapping = {code: name for name, code in BOLAG_VALUES.items()}
+        if bolag_counts['Bolag'].iloc[0] in bolag_mapping:
+            bolag_counts['Bolag Name'] = bolag_counts['Bolag'].map(bolag_mapping)
+        else:
+            bolag_counts['Bolag Name'] = bolag_counts['Bolag']
+    
+    # Calculate customers by age group
+    age_counts = None
+    if 'Age' in customer_df.columns:
+        # Create age groups
+        bins = [0, 18, 25, 35, 45, 55, 65, 75, 100]
+        labels = ['<18', '18-24', '25-34', '35-44', '45-54', '55-64', '65-74', '75+']
+        customer_df['age_group'] = pd.cut(customer_df['Age'], bins=bins, labels=labels, right=False)
+        
+        age_counts = customer_df['age_group'].value_counts().reset_index()
+        age_counts.columns = ['Age Group', 'Count']
+    
+    # Calculate estimated reach
+    excluded_customer_count = 0
+    if bolag_counts is not None and parameters['excluded_bolags']:
+        for bolag_code in parameters['excluded_bolags']:
+            # Find the corresponding bolag in our counts
+            bolag_name = next((name for name, code in BOLAG_VALUES.items() if code == bolag_code), bolag_code)
+            matching_bolag = bolag_counts[bolag_counts['Bolag'] == bolag_code]
+            if not matching_bolag.empty:
+                excluded_customer_count += matching_bolag.iloc[0]['Count']
+    
+    estimated_reach = total_customers - excluded_customer_count
+    
+    # Calculate age filter impact
+    age_filter_exclusions = 0
+    if age_counts is not None:
+        # Find customers outside the age range
+        age_counts_filtered = age_counts.copy()
+        
+        # Convert age group labels to start age (for comparison)
+        def extract_min_age(age_group):
+            if age_group == '<18':
+                return 0
+            elif '-' in str(age_group):
+                return int(str(age_group).split('-')[0])
+            else:
+                return 75  # For 75+ group
+        
+        age_counts_filtered['min_age'] = age_counts_filtered['Age Group'].apply(extract_min_age)
+        
+        # Filter out age groups outside our range
+        excluded_ages = age_counts_filtered[
+            (age_counts_filtered['min_age'] < parameters['min_age']) | 
+            (age_counts_filtered['min_age'] >= parameters['max_age'])
+        ]
+        
+        age_filter_exclusions = excluded_ages['Count'].sum() if not excluded_ages.empty else 0
+    
+    final_estimated_reach = estimated_reach - age_filter_exclusions
+    
+    # Display reach metrics
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            "Total Available Customers",
+            f"{total_customers:,}",
+            help="Total number of customers in the database"
+        )
+    
+    with col2:
+        st.metric(
+            "Estimated Campaign Reach",
+            f"{final_estimated_reach:,}",
+            f"{final_estimated_reach - total_customers:,}" if final_estimated_reach != total_customers else None,
+            help="Estimated number of customers who will receive this campaign, after applying filters"
+        )
+    
+    with col3:
+        reach_percentage = (final_estimated_reach / total_customers * 100) if total_customers > 0 else 0
+        st.metric(
+            "Reach Percentage",
+            f"{reach_percentage:.1f}%",
+            help="Percentage of total customers who will receive this campaign"
+        )
+    
+    # Section explaining excluded segments
+    if excluded_bolag_names or age_filter_exclusions > 0:
+        st.subheader("Segment Exclusions")
+        
+        if excluded_bolag_names:
+            st.info(f"**Excluded Bolag Regions:** {', '.join(excluded_bolag_names)}")
+            st.write(f"This excludes approximately {excluded_customer_count:,} customers.")
+        
+        if age_filter_exclusions > 0:
+            st.info(f"**Age Range Filter:** {parameters['min_age']} to {parameters['max_age']} years")
+            st.write(f"This excludes approximately {age_filter_exclusions:,} customers outside the age range.")
+    
+    # Performance forecast
+    st.subheader("Performance Forecast")
+    
+    # Calculate expected metrics based on reach and rates
+    current_metrics = {
+        'open_rate': formatted_predictions['current']['open_rate'],
+        'click_rate': formatted_predictions['current']['click_rate'],
+        'optout_rate': formatted_predictions['current']['optout_rate']
+    }
+    
+    recommended_metrics = {
+        'open_rate': formatted_predictions['combined']['open_rate'],
+        'click_rate': formatted_predictions['combined']['click_rate'],
+        'optout_rate': formatted_predictions['combined']['optout_rate']
+    }
+    
+    # Calculate absolute numbers
+    current_estimates = {
+        'reaches': final_estimated_reach,
+        'opens': int(final_estimated_reach * current_metrics['open_rate'] / 100),
+        'clicks': int(final_estimated_reach * current_metrics['open_rate'] / 100 * current_metrics['click_rate'] / 100),
+        'optouts': int(final_estimated_reach * current_metrics['open_rate'] / 100 * current_metrics['optout_rate'] / 100)
+    }
+    
+    recommended_estimates = {
+        'reaches': final_estimated_reach,
+        'opens': int(final_estimated_reach * recommended_metrics['open_rate'] / 100),
+        'clicks': int(final_estimated_reach * recommended_metrics['open_rate'] / 100 * recommended_metrics['click_rate'] / 100),
+        'optouts': int(final_estimated_reach * recommended_metrics['open_rate'] / 100 * recommended_metrics['optout_rate'] / 100)
+    }
+    
+    # Display metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            "Estimated Reaches",
+            f"{current_estimates['reaches']:,}"
+        )
+        
+    with col2:
+        st.metric(
+            "Estimated Opens",
+            f"{current_estimates['opens']:,}",
+            f"{recommended_estimates['opens'] - current_estimates['opens']:,}"
+        )
+        
+    with col3:
+        st.metric(
+            "Estimated Clicks",
+            f"{current_estimates['clicks']:,}",
+            f"{recommended_estimates['clicks'] - current_estimates['clicks']:,}"
+        )
+        
+    with col4:
+        st.metric(
+            "Estimated Optouts",
+            f"{current_estimates['optouts']:,}",
+            f"{recommended_estimates['optouts'] - current_estimates['optouts']:,}"
+        )
+    
+    # Create comparison chart
+    forecast_data = pd.DataFrame({
+        'Metric': ['Opens', 'Clicks', 'Optouts'],
+        'Current Strategy': [
+            current_estimates['opens'],
+            current_estimates['clicks'],
+            current_estimates['optouts']
+        ],
+        'Recommended Strategy': [
+            recommended_estimates['opens'],
+            recommended_estimates['clicks'],
+            recommended_estimates['optouts']
+        ]
+    })
+    
+    forecast_melted = pd.melt(
+        forecast_data,
+        id_vars='Metric',
+        var_name='Strategy',
+        value_name='Count'
+    )
+    
+    fig_forecast = px.bar(
+        forecast_melted,
+        x='Metric',
+        y='Count',
+        color='Strategy',
+        barmode='group',
+        title='Estimated Campaign Performance Comparison',
+        text=forecast_melted['Count'].apply(lambda x: f"{x:,}")
+    )
+    
+    fig_forecast.update_traces(textposition='outside')
+    fig_forecast.update_layout(
+        xaxis_title='Metric',
+        yaxis_title='Estimated Count'
+    )
+    
+    st.plotly_chart(fig_forecast, use_container_width=True)
+    
+    # ROI estimation (if possible)
+    st.subheader("Return on Investment Estimation")
+    
+    roi_col1, roi_col2 = st.columns(2)
+    
+    with roi_col1:
+        avg_revenue_per_click = st.number_input(
+            "Average Revenue per Click (SEK)",
+            min_value=0.0,
+            value=50.0,
+            step=10.0,
+            help="Estimated average revenue generated per click"
+        )
+        
+        avg_cost_per_optout = st.number_input(
+            "Average Cost per Optout (SEK)",
+            min_value=0.0,
+            value=200.0,
+            step=10.0,
+            help="Estimated cost/value lost per customer who opts out"
+        )
+    
+    with roi_col2:
+        campaign_cost = st.number_input(
+            "Campaign Cost (SEK)",
+            min_value=0.0,
+            value=5000.0,
+            step=1000.0,
+            help="Total cost to create and send this campaign"
+        )
+        
+        # Show advanced options checkbox
+        show_advanced = st.checkbox("Show Advanced Options")
+        
+        if show_advanced:
+            cost_per_send = st.number_input(
+                "Cost per Send (SEK)",
+                min_value=0.0,
+                value=0.1,
+                step=0.1,
+                format="%.2f",
+                help="Cost per individual email sent"
+            )
+            
+            # Update campaign cost to include per-send costs
+            campaign_cost += cost_per_send * final_estimated_reach
+    
+    # Calculate ROI
+    current_revenue = current_estimates['clicks'] * avg_revenue_per_click
+    current_optout_cost = current_estimates['optouts'] * avg_cost_per_optout
+    current_roi = current_revenue - current_optout_cost - campaign_cost
+    
+    recommended_revenue = recommended_estimates['clicks'] * avg_revenue_per_click
+    recommended_optout_cost = recommended_estimates['optouts'] * avg_cost_per_optout
+    recommended_roi = recommended_revenue - recommended_optout_cost - campaign_cost
+    
+    # Display ROI
+    roi_metrics_col1, roi_metrics_col2 = st.columns(2)
+    
+    with roi_metrics_col1:
+        st.subheader("Current Strategy ROI")
+        
+        roi_detail_col1, roi_detail_col2 = st.columns(2)
+        
+        with roi_detail_col1:
+            st.metric("Estimated Revenue", f"{current_revenue:,.2f} SEK")
+            st.metric("Optout Cost", f"{current_optout_cost:,.2f} SEK")
+            
+        with roi_detail_col2:
+            st.metric("Campaign Cost", f"{campaign_cost:,.2f} SEK")
+            st.metric("Net ROI", f"{current_roi:,.2f} SEK")
+    
+    with roi_metrics_col2:
+        st.subheader("Recommended Strategy ROI")
+        
+        roi_detail_col1, roi_detail_col2 = st.columns(2)
+        
+        with roi_detail_col1:
+            st.metric(
+                "Estimated Revenue", 
+                f"{recommended_revenue:,.2f} SEK",
+                f"{recommended_revenue - current_revenue:,.2f} SEK"
+            )
+            st.metric(
+                "Optout Cost", 
+                f"{recommended_optout_cost:,.2f} SEK",
+                f"{current_optout_cost - recommended_optout_cost:,.2f} SEK" if recommended_optout_cost < current_optout_cost else f"-{recommended_optout_cost - current_optout_cost:,.2f} SEK"
+            )
+            
+        with roi_detail_col2:
+            st.metric("Campaign Cost", f"{campaign_cost:,.2f} SEK")
+            st.metric(
+                "Net ROI", 
+                f"{recommended_roi:,.2f} SEK",
+                f"{recommended_roi - current_roi:,.2f} SEK"
+            )
+    
+    # ROI comparison chart
+    roi_comparison = pd.DataFrame({
+        'Category': ['Revenue', 'Optout Cost', 'Campaign Cost', 'Net ROI'],
+        'Current Strategy': [current_revenue, current_optout_cost, campaign_cost, current_roi],
+        'Recommended Strategy': [recommended_revenue, recommended_optout_cost, campaign_cost, recommended_roi]
+    })
+    
+    roi_melted = pd.melt(
+        roi_comparison,
+        id_vars='Category',
+        var_name='Strategy',
+        value_name='Amount (SEK)'
+    )
+    
+    fig_roi = px.bar(
+        roi_melted,
+        x='Category',
+        y='Amount (SEK)',
+        color='Strategy',
+        barmode='group',
+        title='ROI Comparison',
+        text=roi_melted['Amount (SEK)'].apply(lambda x: f"{x:,.0f} SEK")
+    )
+    
+    fig_roi.update_traces(textposition='outside')
+    fig_roi.update_layout(
+        xaxis_title='Category',
+        yaxis_title='Amount (SEK)'
+    )
+    
+    st.plotly_chart(fig_roi, use_container_width=True)
+    
+    # Recommendations summary
+    st.subheader("Key Recommendations")
+    
+    rec_col1, rec_col2 = st.columns(2)
+    
+    with rec_col1:
+        st.markdown("#### Targeting Recommendations")
+        
+        if not parameters['excluded_bolags']:
+            st.success("✅ **Targeting all Bolag regions** - Maximizing reach")
+        else:
+            st.warning(f"⚠️ **Excluding {len(parameters['excluded_bolags'])} Bolag regions** - Consider expanding reach")
+        
+        # Age range recommendation
+        age_range_text = f"**Current Age Range:** {parameters['min_age']} to {parameters['max_age']} years"
+        if parameters['min_age'] > 25 or parameters['max_age'] < 65:
+            st.warning(f"⚠️ {age_range_text} - Consider expanding to capture more customers")
+        else:
+            st.success(f"✅ {age_range_text} - Good coverage of key segments")
+    
+    with rec_col2:
+        st.markdown("#### Content Recommendations")
+        
+        st.success(f"✅ **Recommended Subject Line:** '{formatted_predictions['subject']['text']}'")
+        st.info(f"**Predicted Open Rate:** {formatted_predictions['subject']['open_rate']:.2f}% (Increase: {formatted_predictions['subject']['open_rate_diff']:.2f}%)")
+        
+        # Dialog, syfte, product recommendations
+        dialog_name = next((name for name, code in DIALOG_VALUES.items() if code[0] == parameters['dialog']), parameters['dialog'])
+        syfte_name = next((name for name, code in SYFTE_VALUES.items() if code[0] == parameters['syfte']), parameters['syfte'])
+        
+        st.markdown(f"**Selected Dialog:** {dialog_name}")
+        st.markdown(f"**Selected Purpose:** {syfte_name}")
+
+def display_kpi_dashboard(formatted_predictions, delivery_df):
+    """
+    Display a KPI dashboard showing current and recommended KPIs
+    
+    Parameters:
+    - formatted_predictions: Formatted prediction results
+    - delivery_df: DataFrame with delivery metrics
+    """
+    import streamlit as st
+    import pandas as pd
+    import plotly.express as px
+    import plotly.graph_objects as go
+    import numpy as np
+    
+    st.header("Campaign KPI Dashboard")
+    
+    # Calculate historical averages
+    historical_metrics = {
+        'open_rate': delivery_df['open_rate'].mean() if 'open_rate' in delivery_df.columns else 0,
+        'click_rate': delivery_df['click_rate'].mean() if 'click_rate' in delivery_df.columns else 0,
+        'optout_rate': delivery_df['optout_rate'].mean() if 'optout_rate' in delivery_df.columns else 0
+    }
+    
+    # Calculate click-to-open rate (CTOR)
+    current_ctor = (formatted_predictions['current']['click_rate'] / formatted_predictions['current']['open_rate'] * 100) if formatted_predictions['current']['open_rate'] > 0 else 0
+    recommended_ctor = (formatted_predictions['combined']['click_rate'] / formatted_predictions['combined']['open_rate'] * 100) if formatted_predictions['combined']['open_rate'] > 0 else 0
+    historical_ctor = (historical_metrics['click_rate'] / historical_metrics['open_rate'] * 100) if historical_metrics['open_rate'] > 0 else 0
+    
+    # Calculate engagement score (custom metric combining open and click rates, minus optout rate)
+    def calculate_engagement(open_rate, click_rate, optout_rate):
+        return (open_rate * 0.4) + (click_rate * 0.6) - (optout_rate * 2)
+    
+    current_engagement = calculate_engagement(
+        formatted_predictions['current']['open_rate'],
+        formatted_predictions['current']['click_rate'],
+        formatted_predictions['current']['optout_rate']
+    )
+    
+    recommended_engagement = calculate_engagement(
+        formatted_predictions['combined']['open_rate'],
+        formatted_predictions['combined']['click_rate'],
+        formatted_predictions['combined']['optout_rate']
+    )
+    
+    historical_engagement = calculate_engagement(
+        historical_metrics['open_rate'],
+        historical_metrics['click_rate'],
+        historical_metrics['optout_rate']
+    )
+    
+    # Create KPI tables
+    kpi_data = pd.DataFrame({
+        'KPI': ['Open Rate', 'Click Rate', 'Optout Rate', 'Click-to-Open Rate', 'Engagement Score'],
+        'Current': [
+            formatted_predictions['current']['open_rate'],
+            formatted_predictions['current']['click_rate'],
+            formatted_predictions['current']['optout_rate'],
+            current_ctor,
+            current_engagement
+        ],
+        'Recommended': [
+            formatted_predictions['combined']['open_rate'],
+            formatted_predictions['combined']['click_rate'],
+            formatted_predictions['combined']['optout_rate'],
+            recommended_ctor,
+            recommended_engagement
+        ],
+        'Historical Average': [
+            historical_metrics['open_rate'],
+            historical_metrics['click_rate'],
+            historical_metrics['optout_rate'],
+            historical_ctor,
+            historical_engagement
+        ]
+    })
+    
+    # Calculate differences
+    kpi_data['Δ Recommended'] = kpi_data['Recommended'] - kpi_data['Current']
+    kpi_data['Δ Historical'] = kpi_data['Current'] - kpi_data['Historical Average']
+    
+    # Display the KPI table
+    st.dataframe(
+        kpi_data.style.format({
+            'Current': '{:.2f}%',
+            'Recommended': '{:.2f}%',
+            'Historical Average': '{:.2f}%',
+            'Δ Recommended': '{:+.2f}%',
+            'Δ Historical': '{:+.2f}%'
+        }).background_gradient(
+            subset=['Δ Recommended'], 
+            cmap='RdYlGn', 
+            vmin=-3, 
+            vmax=3
+        ).background_gradient(
+            subset=['Δ Historical'], 
+            cmap='RdYlGn', 
+            vmin=-3, 
+            vmax=3
+        ),
+        use_container_width=True
+    )
+    
+    # Create KPI gauge charts
+    st.subheader("Key Performance Indicators")
+    
+    # Create two rows of metrics
+    row1_col1, row1_col2, row1_col3 = st.columns(3)
+    row2_col1, row2_col2 = st.columns(2)
+    
+    # Define targets for each KPI
+    targets = {
+        'open_rate': historical_metrics['open_rate'] * 1.1,  # 10% above historical average
+        'click_rate': historical_metrics['click_rate'] * 1.15,  # 15% above historical average
+        'optout_rate': historical_metrics['optout_rate'] * 0.9,  # 10% below historical average
+        'ctor': historical_ctor * 1.05,  # 5% above historical average
+        'engagement': historical_engagement * 1.1  # 10% above historical average
+    }
+    
+    # Create gauge charts
+    with row1_col1:
+        fig_open = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=formatted_predictions['current']['open_rate'],
+            title={'text': "Open Rate (%)"},
+            delta={'reference': historical_metrics['open_rate'], 'relative': False, 'valueformat': '.2f'},
+            gauge={
+                'axis': {'range': [0, max(formatted_predictions['combined']['open_rate'], targets['open_rate']) * 1.2]},
+                'bar': {'color': "blue"},
+                'steps': [
+                    {'range': [0, historical_metrics['open_rate']], 'color': "lightgray"},
+                    {'range': [historical_metrics['open_rate'], targets['open_rate']], 'color': "lightblue"}
+                ],
+                'threshold': {
+                    'line': {'color': "green", 'width': 4},
+                    'thickness': 0.75,
+                    'value': formatted_predictions['combined']['open_rate']
+                }
+            }
+        ))
+        st.plotly_chart(fig_open, use_container_width=True)
+    
+    with row1_col2:
+        fig_click = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=formatted_predictions['current']['click_rate'],
+            title={'text': "Click Rate (%)"},
+            delta={'reference': historical_metrics['click_rate'], 'relative': False, 'valueformat': '.2f'},
+            gauge={
+                'axis': {'range': [0, max(formatted_predictions['combined']['click_rate'], targets['click_rate']) * 1.2]},
+                'bar': {'color': "green"},
+                'steps': [
+                    {'range': [0, historical_metrics['click_rate']], 'color': "lightgray"},
+                    {'range': [historical_metrics['click_rate'], targets['click_rate']], 'color': "lightgreen"}
+                ],
+                'threshold': {
+                    'line': {'color': "green", 'width': 4},
+                    'thickness': 0.75,
+                    'value': formatted_predictions['combined']['click_rate']
+                }
+            }
+        ))
+        st.plotly_chart(fig_click, use_container_width=True)
+    
+    with row1_col3:
+        # For optout rate, lower is better
+        fig_optout = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=formatted_predictions['current']['optout_rate'],
+            title={'text': "Optout Rate (%)"},
+            delta={
+                'reference': historical_metrics['optout_rate'], 
+                'relative': False, 
+                'valueformat': '.2f',
+                'decreasing': {'color': 'green'},
+                'increasing': {'color': 'red'}
+            },
+            gauge={
+                'axis': {'range': [0, max(formatted_predictions['current']['optout_rate'], historical_metrics['optout_rate']) * 1.5]},
+                'bar': {'color': "red"},
+                'steps': [
+                    {'range': [0, targets['optout_rate']], 'color': "lightgreen"},
+                    {'range': [targets['optout_rate'], historical_metrics['optout_rate']], 'color': "lightyellow"},
+                    {'range': [historical_metrics['optout_rate'], historical_metrics['optout_rate'] * 1.5], 'color': "pink"}
+                ],
+                'threshold': {
+                    'line': {'color': "green", 'width': 4},
+                    'thickness': 0.75,
+                    'value': formatted_predictions['combined']['optout_rate']
+                }
+            }
+        ))
+        st.plotly_chart(fig_optout, use_container_width=True)
+    
+    with row2_col1:
+        fig_ctor = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=current_ctor,
+            title={'text': "Click-to-Open Rate (%)"},
+            delta={'reference': historical_ctor, 'relative': False, 'valueformat': '.2f'},
+            gauge={
+                'axis': {'range': [0, max(recommended_ctor, targets['ctor']) * 1.2]},
+                'bar': {'color': "purple"},
+                'steps': [
+                    {'range': [0, historical_ctor], 'color': "lightgray"},
+                    {'range': [historical_ctor, targets['ctor']], 'color': "lavender"}
+                ],
+                'threshold': {
+                    'line': {'color': "green", 'width': 4},
+                    'thickness': 0.75,
+                    'value': recommended_ctor
+                }
+            }
+        ))
+        st.plotly_chart(fig_ctor, use_container_width=True)
+    
+    with row2_col2:
+        fig_engagement = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=current_engagement,
+            title={'text': "Engagement Score"},
+            delta={'reference': historical_engagement, 'relative': False, 'valueformat': '.2f'},
+            gauge={
+                'axis': {'range': [0, max(recommended_engagement, targets['engagement']) * 1.2]},
+                'bar': {'color': "orange"},
+                'steps': [
+                    {'range': [0, historical_engagement], 'color': "lightgray"},
+                    {'range': [historical_engagement, targets['engagement']], 'color': "peachpuff"}
+                ],
+                'threshold': {
+                    'line': {'color': "green", 'width': 4},
+                    'thickness': 0.75,
+                    'value': recommended_engagement
+                }
+            }
+        ))
+        st.plotly_chart(fig_engagement, use_container_width=True)
+    
+    # Display KPI descriptions
+    with st.expander("KPI Descriptions"):
+        st.markdown("""
+        ### KPI Definitions
+        
+        - **Open Rate**: Percentage of delivered emails that were opened.
+        - **Click Rate**: Percentage of opened emails that had at least one click.
+        - **Optout Rate**: Percentage of opened emails that resulted in an unsubscribe.
+        - **Click-to-Open Rate (CTOR)**: Ratio of clicks to opens, indicating how effective the email content is at generating clicks once opened.
+        - **Engagement Score**: A composite score calculated from open rate, click rate, and optout rate to measure overall engagement.
+        
+        ### KPI Calculation
+        
+        - **Open Rate** = (Number of Opens / Number of Sends) * 100%
+        - **Click Rate** = (Number of Clicks / Number of Opens) * 100%
+        - **Optout Rate** = (Number of Optouts / Number of Opens) * 100%
+        - **Click-to-Open Rate** = (Click Rate / Open Rate) * 100%
+        - **Engagement Score** = (Open Rate * 0.4) + (Click Rate * 0.6) - (Optout Rate * 2)
+        
+        ### Target Values
+        
+        Targets are calculated based on historical performance:
+        - **Open Rate Target**: 10% above historical average
+        - **Click Rate Target**: 15% above historical average
+        - **Optout Rate Target**: 10% below historical average
+        - **CTOR Target**: 5% above historical average
+        - **Engagement Score Target**: 10% above historical average
+        """)
+        
+def display_targeting_recommendations(formatted_predictions, parameters, time_analysis, age_group_metrics):
+    """
+    Display targeting recommendations with a focus on excluded bolags and timing,
+    instead of suggesting a single bolag.
+    
+    Parameters:
+    - formatted_predictions: Formatted prediction results
+    - parameters: Input parameters from the form
+    - time_analysis: Results from time-based analysis
+    - age_group_metrics: Results from age group analysis
+    """
+    import streamlit as st
+    
+    st.subheader("Targeting Recommendation")
+    
+    # Display excluded bolags
+    if parameters['excluded_bolags']:
+        st.info(f"**Current Excluded Bolag Regions:** {', '.join(parameters['excluded_bolags'])}")
+    else:
+        st.success("**Current Strategy:** Targeting all Bolag regions (no exclusions)")
+    
+    # Display metrics
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    with metric_col1:
+        confidence = formatted_predictions['targeting']['confidence']['open_rate']
+        st.metric(
+            "Open Rate",
+            f"{formatted_predictions['targeting']['open_rate']:.2f}%",
+            f"{formatted_predictions['targeting']['open_rate_diff']:.2f}%"
+        )
+        st.caption(f"Confidence: {confidence:.0f}%")
+    with metric_col2:
+        confidence = formatted_predictions['targeting']['confidence']['click_rate']
+        st.metric(
+            "Click Rate",
+            f"{formatted_predictions['targeting']['click_rate']:.2f}%",
+            f"{formatted_predictions['targeting']['click_rate_diff']:.2f}%"
+        )
+        st.caption(f"Confidence: {confidence:.0f}%")
+    with metric_col3:
+        confidence = formatted_predictions['targeting']['confidence']['optout_rate']
+        st.metric(
+            "Optout Rate",
+            f"{formatted_predictions['targeting']['optout_rate']:.2f}%",
+            f"{formatted_predictions['targeting']['optout_rate_diff']:.2f}%"
+        )
+        st.caption(f"Confidence: {confidence:.0f}%")
+    
+    # Display timing recommendations if available
+    if time_analysis and 'best_worst' in time_analysis:
+        st.markdown("### Optimal Timing Recommendations")
+        
+        best_worst = time_analysis['best_worst']
+        
+        timing_col1, timing_col2 = st.columns(2)
+        
+        with timing_col1:
+            st.markdown("#### Best Time to Send")
+            
+            # Best day for open rate
+            if 'open_rate' in best_worst:
+                best_day = best_worst['open_rate']['best_day']
+                best_hour = best_worst['open_rate']['best_hour']
+                st.success(f"📈 **For highest open rates:** Send on **{best_day}** at **{best_hour}:00**")
+                
+                st.markdown(f"Open Rate: {best_worst['open_rate']['best_day_rate']:.2f}% (day), {best_worst['open_rate']['best_hour_rate']:.2f}% (hour)")
+            
+            # Best day for click rate
+            if 'click_rate' in best_worst:
+                best_day = best_worst['click_rate']['best_day']
+                best_hour = best_worst['click_rate']['best_hour']
+                st.success(f"🖱️ **For highest click rates:** Send on **{best_day}** at **{best_hour}:00**")
+                
+                st.markdown(f"Click Rate: {best_worst['click_rate']['best_day_rate']:.2f}% (day), {best_worst['click_rate']['best_hour_rate']:.2f}% (hour)")
+            
+            # Best day for optout rate (lowest)
+            if 'optout_rate' in best_worst:
+                best_day = best_worst['optout_rate']['best_day']
+                best_hour = best_worst['optout_rate']['best_hour']
+                st.success(f"👍 **For lowest optout rates:** Send on **{best_day}** at **{best_hour}:00**")
+                
+                st.markdown(f"Optout Rate: {best_worst['optout_rate']['best_day_rate']:.2f}% (day), {best_worst['optout_rate']['best_hour_rate']:.2f}% (hour)")
+        
+        with timing_col2:
+            st.markdown("#### Times to Avoid")
+            
+            # Worst day for open rate
+            if 'open_rate' in best_worst:
+                worst_day = best_worst['open_rate']['worst_day']
+                worst_hour = best_worst['open_rate']['worst_hour']
+                st.error(f"📉 **For open rates, avoid:** Sending on **{worst_day}** at **{worst_hour}:00**")
+                
+                st.markdown(f"Open Rate: {best_worst['open_rate']['worst_day_rate']:.2f}% (day), {best_worst['open_rate']['worst_hour_rate']:.2f}% (hour)")
+            
+            # Worst day for click rate
+            if 'click_rate' in best_worst:
+                worst_day = best_worst['click_rate']['worst_day']
+                worst_hour = best_worst['click_rate']['worst_hour']
+                st.error(f"🖱️ **For click rates, avoid:** Sending on **{worst_day}** at **{worst_hour}:00**")
+                
+                st.markdown(f"Click Rate: {best_worst['click_rate']['worst_day_rate']:.2f}% (day), {best_worst['click_rate']['worst_hour_rate']:.2f}% (hour)")
+            
+            # Worst day for optout rate (highest)
+            if 'optout_rate' in best_worst:
+                worst_day = best_worst['optout_rate']['worst_day']
+                worst_hour = best_worst['optout_rate']['worst_hour']
+                st.error(f"👎 **For optout rates, avoid:** Sending on **{worst_day}** at **{worst_hour}:00**")
+                
+                st.markdown(f"Optout Rate: {best_worst['optout_rate']['worst_day_rate']:.2f}% (day), {best_worst['optout_rate']['worst_hour_rate']:.2f}% (hour)")
+    
+    # Display age group recommendations if available
+    if age_group_metrics is not None:
+        st.markdown("### Age Group Performance")
+        
+        best_age_open = age_group_metrics.loc[age_group_metrics['avg_open_rate'].idxmax()]
+        best_age_click = age_group_metrics.loc[age_group_metrics['avg_click_rate'].idxmax()]
+        best_age_optout = age_group_metrics.loc[age_group_metrics['avg_optout_rate'].idxmin()]  # Lowest is best
+        
+        age_col1, age_col2, age_col3 = st.columns(3)
+        
+        with age_col1:
+            st.markdown("#### Best Age Group for Opens")
+            st.success(f"**{best_age_open['age_group']}**")
+            st.markdown(f"Open Rate: {best_age_open['avg_open_rate']:.2f}%")
+        
+        with age_col2:
+            st.markdown("#### Best Age Group for Clicks")
+            st.success(f"**{best_age_click['age_group']}**")
+            st.markdown(f"Click Rate: {best_age_click['avg_click_rate']:.2f}%")
+        
+        with age_col3:
+            st.markdown("#### Best Age Group for Retention")
+            st.success(f"**{best_age_optout['age_group']}**")
+            st.markdown(f"Optout Rate: {best_age_optout['avg_optout_rate']:.2f}%")
+        
+        # Age range recommendation
+        current_age_range = f"{parameters['min_age']} to {parameters['max_age']}"
+        
+        if (parameters['min_age'] > int(str(best_age_open['age_group']).split('-')[0] if '-' in str(best_age_open['age_group']) else 0) or
+            parameters['max_age'] < int(str(best_age_open['age_group']).split('-')[1] if '-' in str(best_age_open['age_group']) else 100)):
+            st.warning(f"⚠️ Current age range (**{current_age_range}**) might be missing the best performing age group for opens.")
+        else:
+            st.success(f"✅ Current age range (**{current_age_range}**) includes the best performing age group for opens.")
+    
+    # Display combined strategy recommendation
+    st.markdown("### Combined Targeting Strategy")
+    
+    # Determine the optimal day and hour (prioritizing open rate)
+    optimal_day = "unknown"
+    optimal_hour = "unknown"
+    
+    if time_analysis and 'best_worst' in time_analysis and 'open_rate' in time_analysis['best_worst']:
+        optimal_day = time_analysis['best_worst']['open_rate']['best_day']
+        optimal_hour = time_analysis['best_worst']['open_rate']['best_hour']
+    
+    # Recommended age range
+    recommended_min_age = parameters['min_age']
+    recommended_max_age = parameters['max_age']
+    
+    if age_group_metrics is not None:
+        # Find the best performing age groups
+        top_performing_groups = age_group_metrics.nlargest(3, 'avg_open_rate')['age_group'].tolist()
+        
+        # Extract min and max ages from these groups
+        min_ages = []
+        max_ages = []
+        
+        for group in top_performing_groups:
+            group_str = str(group)
+            if group_str == '<18':
+                min_ages.append(0)
+                max_ages.append(18)
+            elif '-' in group_str:
+                parts = group_str.split('-')
+                min_ages.append(int(parts[0]))
+                max_ages.append(int(parts[1]))
+            elif group_str == '75+':
+                min_ages.append(75)
+                max_ages.append(100)
+        
+        if min_ages and max_ages:
+            recommended_min_age = min(min_ages)
+            recommended_max_age = max(max_ages)
+    
+    # Generate recommendation text
+    recommendations = []
+    
+    # Timing recommendation
+    if optimal_day != "unknown" and optimal_hour != "unknown":
+        recommendations.append(f"**Send time:** {optimal_day} at {optimal_hour}:00")
+    
+    # Age range recommendation
+    if recommended_min_age != parameters['min_age'] or recommended_max_age != parameters['max_age']:
+        recommendations.append(f"**Consider age range:** {recommended_min_age} to {recommended_max_age} years")
+    else:
+        recommendations.append(f"**Age range:** {parameters['min_age']} to {parameters['max_age']} years is optimal")
+    
+    # Bolag recommendation
+    if parameters['excluded_bolags']:
+        recommendations.append(f"**Consider including:** some of the currently excluded Bolag regions to increase reach")
+    else:
+        recommendations.append("**Targeting all Bolag regions:** maximize reach")
+    
+    # Display recommendations
+    for rec in recommendations:
+        st.markdown(f"- {rec}")
+    
+    # Display estimated impact
+    st.markdown("### Estimated Impact")
+    
+    impact_col1, impact_col2, impact_col3 = st.columns(3)
+    
+    with impact_col1:
+        st.metric(
+            "Open Rate Impact", 
+            f"{formatted_predictions['targeting']['open_rate']:.2f}%",
+            f"{formatted_predictions['targeting']['open_rate_diff']:.2f}%"
+        )
+    
+    with impact_col2:
+        st.metric(
+            "Click Rate Impact",
+            f"{formatted_predictions['targeting']['click_rate']:.2f}%",
+            f"{formatted_predictions['targeting']['click_rate_diff']:.2f}%"
+        )
+    
+    with impact_col3:
+        st.metric(
+            "Optout Rate Impact",
+            f"{formatted_predictions['targeting']['optout_rate']:.2f}%",
+            f"{formatted_predictions['targeting']['optout_rate_diff']:.2f}%"
+        )
+        
+        
 def generate_campaign_report(parameters, formatted_predictions, BOLAG_VALUES):
     """
     Generate a comprehensive campaign report with all predictions and parameters.
@@ -789,13 +2019,16 @@ def display_model_management(model_results):
             st.subheader("All Feature Names")
             st.write(model_results.get('feature_names', []))
 
-
-# Step 2: Update the main() function to use the correct campaign_parameter_input function
-# and to call display_model_management in the model management tab
-
 def main():
     """
-    Updated main function with proper bolag handling and model management
+    Updated main function with all the enhancements:
+    - Remove Target Bolag field (only exclude bolags)
+    - Improved targeting recommendations
+    - Age group analytics
+    - Daily trend charts
+    - Best/worst timing analysis
+    - KPI dashboard
+    - Forecast tab
     """
     # Header & Intro
     st.title("📧 Email Campaign KPI Predictor")
@@ -804,6 +2037,8 @@ def main():
     
     - **Subject Line Recommendations**: Optimize for open rates only
     - **Targeting Recommendations**: Optimize for open, click, and optout rates
+    - **Timing Optimization**: Identify best days and times to send
+    - **Performance Forecasting**: Estimate campaign ROI and reach
     """)
 
     # Initialize session state for force_retrain if not exists
@@ -811,7 +2046,7 @@ def main():
         st.session_state['force_retrain'] = False
 
     # Load data
-    with st.spinner("Loading data..."):
+    with st.spinner("Processing data..."):
         customer_df, delivery_df = load_data()
 
     if customer_df is None or delivery_df is None:
@@ -835,8 +2070,24 @@ def main():
         st.error("Failed to build models. Please check the data and try again.")
         return
 
+    # Perform time and age group analysis once
+    with st.spinner("Analyzing historical data patterns..."):
+        # Time-based analysis
+        time_analysis = analyze_time_patterns(delivery_df)
+        
+        # Age group analysis
+        age_group_metrics, age_group_fig = analyze_age_groups(customer_df, delivery_df)
+        best_age_groups = get_best_age_groups(age_group_metrics)
+
     # Create tabs for different sections
-    tab1, tab2, tab3, tab4 = st.tabs(["Campaign Predictor", "Performance Insights", "Data Export", "Model Management"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "Campaign Predictor", 
+        "Performance Insights", 
+        "Time Analysis", 
+        "Audience Analysis",
+        "KPI Dashboard",
+        "Forecast"
+    ])
 
     # Tab 1: Campaign Predictor
     with tab1:
@@ -845,12 +2096,11 @@ def main():
         # Get values from models for dropdowns
         cat_values = model_results.get('categorical_values', {})
         
-        # Use the updated campaign parameter input function with proper bolag handling
+        # Use the updated campaign parameter input function without target bolag
         parameters = campaign_parameter_input(cat_values)
         
         # Create input data for prediction
         input_data = pd.DataFrame({
-            'bolag': [parameters['bolag']],  # Now correctly using bolag instead of county
             'dialog': [parameters['dialog']],
             'syfte': [parameters['syfte']],
             'product': [parameters['product']],
@@ -868,7 +2118,7 @@ def main():
         for feature, value in parameters['subject_features'].items():
             input_data[feature] = value
 
-        # Handle excluded bolags if needed
+        # Handle excluded bolags
         if parameters['excluded_bolags']:
             input_data['excluded_bolags'] = [','.join(parameters['excluded_bolags'])]
 
@@ -900,6 +2150,15 @@ def main():
 
             # Track prediction performance
             track_prediction_performance(formatted_predictions)
+
+        # Calculate confidence scores if not already present
+        if 'confidence' not in formatted_predictions['current']:
+            # Add confidence to each prediction set
+            for scenario in ['current', 'targeting', 'subject', 'combined']:
+                formatted_predictions[scenario]['confidence'] = {}
+                for metric in ['open_rate', 'click_rate', 'optout_rate']:
+                    if metric in formatted_predictions[scenario]:
+                        formatted_predictions[scenario]['confidence'][metric] = 85  # Default confidence
 
         # Show predictions using the updated visualization function
         st.header("Predictions & Recommendations")
@@ -951,75 +2210,47 @@ def main():
         with col2:
             st.plotly_chart(figures['subject_impact'], use_container_width=True)
 
-            st.subheader("Targeting Recommendation")
-            # Note: Now displaying bolag instead of county
-            bolag_name = next((name for name, code in BOLAG_VALUES.items() if code == formatted_predictions['targeting']['county']), 
-                           formatted_predictions['targeting']['county'])
-            st.success(f"**Recommended Bolag:** {bolag_name}")
-            
-            if parameters['excluded_bolags']:
-                excluded_names = [name for name, code in BOLAG_VALUES.items() if code in parameters['excluded_bolags']]
-                st.info(f"**Excluded Bolag regions:** {', '.join(excluded_names)}")
-                
-            metric_col1, metric_col2, metric_col3 = st.columns(3)
-            with metric_col1:
-                confidence = formatted_predictions['targeting']['confidence']['open_rate']
-                st.metric(
-                    "Open Rate",
-                    f"{formatted_predictions['targeting']['open_rate']:.2f}%",
-                    f"{formatted_predictions['targeting']['open_rate_diff']:.2f}%"
-                )
-                st.caption(f"Confidence: {confidence:.0f}%")
-            with metric_col2:
-                confidence = formatted_predictions['targeting']['confidence']['click_rate']
-                st.metric(
-                    "Click Rate",
-                    f"{formatted_predictions['targeting']['click_rate']:.2f}%",
-                    f"{formatted_predictions['targeting']['click_rate_diff']:.2f}%"
-                )
-                st.caption(f"Confidence: {confidence:.0f}%")
-            with metric_col3:
-                confidence = formatted_predictions['targeting']['confidence']['optout_rate']
-                st.metric(
-                    "Optout Rate",
-                    f"{formatted_predictions['targeting']['optout_rate']:.2f}%",
-                    f"{formatted_predictions['targeting']['optout_rate_diff']:.2f}%"
-                )
-                st.caption(f"Confidence: {confidence:.0f}%")
-
-            st.subheader("Combined Recommendation")
-            # Also update bolag display here
-            combined_bolag = next((name for name, code in BOLAG_VALUES.items() if code == formatted_predictions['combined']['county']), 
-                               formatted_predictions['combined']['county'])
-            st.success(
-                f"**Targeting:** {combined_bolag} with " +
-                f"Subject: '{formatted_predictions['combined']['subject']}'"
+            # Use the improved targeting recommendations display
+            display_targeting_recommendations(
+                formatted_predictions, 
+                parameters, 
+                time_analysis, 
+                age_group_metrics
             )
-            metric_col1, metric_col2, metric_col3 = st.columns(3)
-            with metric_col1:
-                confidence = formatted_predictions['combined']['confidence']['open_rate']
-                st.metric(
-                    "Open Rate",
-                    f"{formatted_predictions['combined']['open_rate']:.2f}%",
-                    f"{formatted_predictions['combined']['open_rate_diff']:.2f}%"
-                )
-                st.caption(f"Confidence: {confidence:.0f}%")
-            with metric_col2:
-                confidence = formatted_predictions['combined']['confidence']['click_rate']
-                st.metric(
-                    "Click Rate",
-                    f"{formatted_predictions['combined']['click_rate']:.2f}%",
-                    f"{formatted_predictions['combined']['click_rate_diff']:.2f}%"
-                )
-                st.caption(f"Confidence: {confidence:.0f}%")
-            with metric_col3:
-                confidence = formatted_predictions['combined']['confidence']['optout_rate']
-                st.metric(
-                    "Optout Rate",
-                    f"{formatted_predictions['combined']['optout_rate']:.2f}%",
-                    f"{formatted_predictions['combined']['optout_rate_diff']:.2f}%"
-                )
-                st.caption(f"Confidence: {confidence:.0f}%")
+
+        # Display combined recommendation
+        st.subheader("Combined Optimization Strategy")
+        st.success(
+            f"**Recommended Strategy:** Target all bolags (except excluded ones), " +
+            f"use subject '{formatted_predictions['combined']['subject']}', " +
+            f"and send at the optimal time"
+        )
+        
+        metric_col1, metric_col2, metric_col3 = st.columns(3)
+        with metric_col1:
+            confidence = formatted_predictions['combined']['confidence']['open_rate']
+            st.metric(
+                "Open Rate",
+                f"{formatted_predictions['combined']['open_rate']:.2f}%",
+                f"{formatted_predictions['combined']['open_rate_diff']:.2f}%"
+            )
+            st.caption(f"Confidence: {confidence:.0f}%")
+        with metric_col2:
+            confidence = formatted_predictions['combined']['confidence']['click_rate']
+            st.metric(
+                "Click Rate",
+                f"{formatted_predictions['combined']['click_rate']:.2f}%",
+                f"{formatted_predictions['combined']['click_rate_diff']:.2f}%"
+            )
+            st.caption(f"Confidence: {confidence:.0f}%")
+        with metric_col3:
+            confidence = formatted_predictions['combined']['confidence']['optout_rate']
+            st.metric(
+                "Optout Rate",
+                f"{formatted_predictions['combined']['optout_rate']:.2f}%",
+                f"{formatted_predictions['combined']['optout_rate_diff']:.2f}%"
+            )
+            st.caption(f"Confidence: {confidence:.0f}%")
 
         # Additional charts
         st.header("Additional Insights")
@@ -1033,6 +2264,9 @@ def main():
 
         # Detailed comparison table
         st.plotly_chart(figures['table'], use_container_width=True)
+        
+        # Add KPI dashboard at the bottom
+        display_kpi_dashboard(formatted_predictions, delivery_df)
 
     # Tab 2: Performance Insights
     with tab2:
@@ -1222,121 +2456,211 @@ def main():
             for metric, results in model_results['performance'].items():
                 st.write(f"**{metric}**: MAE = {results['mae']:.2f}%")
 
-    # Tab 3: Data Export
+    # Tab 3: Time Analysis (New)
     with tab3:
-        st.header("Export Predictions & Recommendations")
-
-        # Create a dataframe with all predictions
-        export_data = pd.DataFrame({
-            'Metric': ['Open Rate (%)', 'Click Rate (%)', 'Optout Rate (%)'],
-            'Current': [
-                formatted_predictions['current']['open_rate'],
-                formatted_predictions['current']['click_rate'],
-                formatted_predictions['current']['optout_rate']
-            ],
-            'Confidence (%)': [
-                formatted_predictions['current']['confidence']['open_rate'],
-                formatted_predictions['current']['confidence']['click_rate'],
-                formatted_predictions['current']['confidence']['optout_rate']
-            ],
-            'Recommended Targeting': [
-                formatted_predictions['targeting']['open_rate'],
-                formatted_predictions['targeting']['click_rate'],
-                formatted_predictions['targeting']['optout_rate']
-            ],
-            'Targeting Improvement': [
-                formatted_predictions['targeting']['open_rate_diff'],
-                formatted_predictions['targeting']['click_rate_diff'],
-                formatted_predictions['targeting']['optout_rate_diff']
-            ],
-            'Recommended Subject (Open Rate Only)': [
-                formatted_predictions['subject']['open_rate'],
-                "N/A",
-                "N/A"
-            ],
-            'Subject Improvement': [
-                formatted_predictions['subject']['open_rate_diff'],
-                "N/A",
-                "N/A"
-            ],
-            'Combined Recommendation': [
-                formatted_predictions['combined']['open_rate'],
-                formatted_predictions['combined']['click_rate'],
-                formatted_predictions['combined']['optout_rate']
-            ],
-            'Combined Improvement': [
-                formatted_predictions['combined']['open_rate_diff'],
-                formatted_predictions['combined']['click_rate_diff'],
-                formatted_predictions['combined']['optout_rate_diff']
-            ]
-        })
-
-        st.dataframe(export_data)
-
-        # CSV download button
-        csv = export_data.to_csv(index=False)
-        b64 = base64.b64encode(csv.encode()).decode()
-        href = f'<a href="data:file/csv;base64,{b64}" download="campaign_predictions.csv">Download CSV File</a>'
-        st.markdown(href, unsafe_allow_html=True)
-
-        # Create a report using the new function
-        st.subheader("Campaign Report")
+        st.header("Campaign Timing Analysis")
         
-        # Use our new report generation function
-        report = generate_campaign_report(parameters, formatted_predictions, BOLAG_VALUES)
+        if 'fig_days' in time_analysis and 'fig_hours' in time_analysis and 'fig_daily' in time_analysis:
+            st.subheader("Daily Performance Trends")
+            
+            # Display daily trends chart
+            st.plotly_chart(time_analysis['fig_daily'], use_container_width=True)
+            
+            timing_col1, timing_col2 = st.columns(2)
+            
+            with timing_col1:
+                st.subheader("Performance by Day of Week")
+                st.plotly_chart(time_analysis['fig_days'], use_container_width=True)
+            
+            with timing_col2:
+                st.subheader("Performance by Hour of Day")
+                st.plotly_chart(time_analysis['fig_hours'], use_container_width=True)
+            
+            # Display best/worst times in an expandable section
+            with st.expander("Best and Worst Send Times"):
+                best_worst = time_analysis.get('best_worst', {})
+                
+                if best_worst:
+                    best_worst_tab1, best_worst_tab2, best_worst_tab3 = st.tabs([
+                        "Open Rate Timing", "Click Rate Timing", "Optout Rate Timing"
+                    ])
+                    
+                    with best_worst_tab1:
+                        if 'open_rate' in best_worst:
+                            open_timing = best_worst['open_rate']
+                            
+                            timing_col1, timing_col2 = st.columns(2)
+                            
+                            with timing_col1:
+                                st.subheader("Best Times for Opens")
+                                st.metric("Best Day", open_timing['best_day'])
+                                st.metric("Open Rate", f"{open_timing['best_day_rate']:.2f}%")
+                                st.metric("Best Hour", f"{open_timing['best_hour']}:00")
+                                st.metric("Open Rate", f"{open_timing['best_hour_rate']:.2f}%")
+                            
+                            with timing_col2:
+                                st.subheader("Worst Times for Opens")
+                                st.metric("Worst Day", open_timing['worst_day'])
+                                st.metric("Open Rate", f"{open_timing['worst_day_rate']:.2f}%")
+                                st.metric("Worst Hour", f"{open_timing['worst_hour']}:00")
+                                st.metric("Open Rate", f"{open_timing['worst_hour_rate']:.2f}%")
+                    
+                    with best_worst_tab2:
+                        if 'click_rate' in best_worst:
+                            click_timing = best_worst['click_rate']
+                            
+                            timing_col1, timing_col2 = st.columns(2)
+                            
+                            with timing_col1:
+                                st.subheader("Best Times for Clicks")
+                                st.metric("Best Day", click_timing['best_day'])
+                                st.metric("Click Rate", f"{click_timing['best_day_rate']:.2f}%")
+                                st.metric("Best Hour", f"{click_timing['best_hour']}:00")
+                                st.metric("Click Rate", f"{click_timing['best_hour_rate']:.2f}%")
+                            
+                            with timing_col2:
+                                st.subheader("Worst Times for Clicks")
+                                st.metric("Worst Day", click_timing['worst_day'])
+                                st.metric("Click Rate", f"{click_timing['worst_day_rate']:.2f}%")
+                                st.metric("Worst Hour", f"{click_timing['worst_hour']}:00")
+                                st.metric("Click Rate", f"{click_timing['worst_hour_rate']:.2f}%")
+                    
+                    with best_worst_tab3:
+                        if 'optout_rate' in best_worst:
+                            optout_timing = best_worst['optout_rate']
+                            
+                            timing_col1, timing_col2 = st.columns(2)
+                            
+                            with timing_col1:
+                                st.subheader("Best Times for Retention")
+                                st.metric("Best Day", optout_timing['best_day'])
+                                st.metric("Optout Rate", f"{optout_timing['best_day_rate']:.2f}%")
+                                st.metric("Best Hour", f"{optout_timing['best_hour']}:00")
+                                st.metric("Optout Rate", f"{optout_timing['best_hour_rate']:.2f}%")
+                            
+                            with timing_col2:
+                                st.subheader("Worst Times for Retention")
+                                st.metric("Worst Day", optout_timing['worst_day'])
+                                st.metric("Optout Rate", f"{optout_timing['worst_day_rate']:.2f}%")
+                                st.metric("Worst Hour", f"{optout_timing['worst_hour']}:00")
+                                st.metric("Optout Rate", f"{optout_timing['worst_hour_rate']:.2f}%")
+        else:
+            st.warning("Unable to perform time analysis. Please check your data to ensure it includes dates and times.")
+
+    # Tab 4: Audience Analysis (New)
+    with tab4:
+        st.header("Audience Analysis")
         
-        # Display the report
-        st.markdown(report)
+        # Age group analysis
+        st.subheader("Campaign Performance by Age Group")
         
-        # Allow downloading the report as markdown
-        report_b64 = base64.b64encode(report.encode()).decode()
-        report_href = f'<a href="data:file/markdown;base64,{report_b64}" download="campaign_report.md">Download Report (Markdown)</a>'
-        st.markdown(report_href, unsafe_allow_html=True)
-        """
-        ## Campaign Parameters
-        - **County:** {selected_county}
-        - **Dialog:** {selected_dialog}
-        - **Purpose:** {selected_syfte}
-        - **Product:** {selected_product}
-        - **Company:** {selected_bolag}
-        - **Average Age:** {avg_age}
-        - **Percentage Women:** {pct_women}%
-        - **Send Date/Time:** {send_date.strftime('%Y-%m-%d')} at {send_time.strftime('%H:%M')}
-        - **Subject Line:** "{subject}"
+        if age_group_fig is not None:
+            st.plotly_chart(age_group_fig, use_container_width=True)
+            
+            if best_age_groups:
+                st.subheader("Best Performing Age Groups")
+                
+                age_col1, age_col2, age_col3 = st.columns(3)
+                
+                with age_col1:
+                    if 'open_rate' in best_age_groups:
+                        st.metric("Best Age Group for Opens", best_age_groups['open_rate']['group'])
+                        st.metric("Open Rate", f"{best_age_groups['open_rate']['rate']:.2f}%")
+                
+                with age_col2:
+                    if 'click_rate' in best_age_groups:
+                        st.metric("Best Age Group for Clicks", best_age_groups['click_rate']['group'])
+                        st.metric("Click Rate", f"{best_age_groups['click_rate']['rate']:.2f}%")
+                
+                with age_col3:
+                    if 'optout_rate' in best_age_groups:
+                        st.metric("Best Age Group for Retention", best_age_groups['optout_rate']['group'])
+                        st.metric("Optout Rate", f"{best_age_groups['optout_rate']['rate']:.2f}%")
+            
+            if age_group_metrics is not None:
+                st.subheader("Age Group Performance Data")
+                st.dataframe(
+                    age_group_metrics.style.format({
+                        'avg_open_rate': '{:.2f}%',
+                        'avg_click_rate': '{:.2f}%',
+                        'avg_optout_rate': '{:.2f}%'
+                    })
+                )
+        else:
+            st.warning("Unable to perform age group analysis. Please check your data to ensure it includes age information.")
+        
+        # Gender analysis (if data is available)
+        st.subheader("Campaign Performance by Gender")
+        
+        if 'Gender' in customer_df.columns:
+            # Merge customer data with delivery data
+            delivery_metrics = delivery_df[['InternalName', 'open_rate', 'click_rate', 'optout_rate']].copy()
+            merged_data = customer_df.merge(delivery_metrics, on='InternalName', how='left')
+            
+            # Group by gender
+            gender_metrics = merged_data.groupby('Gender').agg(
+                avg_open_rate=('open_rate', 'mean'),
+                avg_click_rate=('click_rate', 'mean'),
+                avg_optout_rate=('optout_rate', 'mean'),
+                count=('InternalName', 'count')
+            ).reset_index()
+            
+            # Fill NaN values
+            gender_metrics.fillna(0, inplace=True)
+            
+            # Create visualization
+            metrics_data = []
+            for _, row in gender_metrics.iterrows():
+                metrics_data.extend([
+                    {'Gender': row['Gender'], 'Metric': 'Open Rate', 'Value': row['avg_open_rate'], 'Count': row['count']},
+                    {'Gender': row['Gender'], 'Metric': 'Click Rate', 'Value': row['avg_click_rate'], 'Count': row['count']},
+                    {'Gender': row['Gender'], 'Metric': 'Optout Rate', 'Value': row['avg_optout_rate'], 'Count': row['count']}
+                ])
+            
+            metrics_df = pd.DataFrame(metrics_data)
+            
+            # Create visualization
+            fig_gender = px.bar(
+                metrics_df,
+                x='Gender',
+                y='Value',
+                color='Metric',
+                barmode='group',
+                text=metrics_df['Value'].round(2).astype(str) + '%',
+                title='Campaign Performance by Gender',
+                hover_data=['Count'],
+                labels={'Value': 'Rate (%)', 'Gender': 'Gender'}
+            )
+            
+            fig_gender.update_traces(textposition='outside')
+            
+            st.plotly_chart(fig_gender, use_container_width=True)
+            
+            # Display data table
+            st.subheader("Gender Performance Data")
+            st.dataframe(
+                gender_metrics.style.format({
+                    'avg_open_rate': '{:.2f}%',
+                    'avg_click_rate': '{:.2f}%',
+                    'avg_optout_rate': '{:.2f}%'
+                })
+            )
+        else:
+            st.warning("Gender information not found in customer data. Unable to perform gender analysis.")
 
-        ## Current Campaign Predictions
-        - **Open Rate:** {formatted_predictions['current']['open_rate']:.2f}%
-        - **Click Rate:** {formatted_predictions['current']['click_rate']:.2f}%
-        - **Optout Rate:** {formatted_predictions['current']['optout_rate']:.2f}%
+    # Tab 5: KPI Dashboard (New)
+    with tab5:
+        display_kpi_dashboard(formatted_predictions, delivery_df)
 
-        ## Subject Line Recommendation (Affects Open Rate Only)
-        - **Recommended Subject:** "{formatted_predictions['subject']['text']}"
-        - **Predicted Open Rate:** {formatted_predictions['subject']['open_rate']:.2f}% (Change: {formatted_predictions['subject']['open_rate_diff']:.2f}%)
-
-        ## Targeting Recommendation (Affects All Metrics)
-        - **Recommended County:** {formatted_predictions['targeting']['county']}
-        - **Predicted Open Rate:** {formatted_predictions['targeting']['open_rate']:.2f}% (Change: {formatted_predictions['targeting']['open_rate_diff']:.2f}%)
-        - **Predicted Click Rate:** {formatted_predictions['targeting']['click_rate']:.2f}% (Change: {formatted_predictions['targeting']['click_rate_diff']:.2f}%)
-        - **Predicted Optout Rate:** {formatted_predictions['targeting']['optout_rate']:.2f}% (Change: {formatted_predictions['targeting']['optout_rate_diff']:.2f}%)
-
-        ## Combined Recommendation
-        - **Targeting:** {formatted_predictions['combined']['county']}
-        - **Subject:** "{formatted_predictions['combined']['subject']}"
-        - **Predicted Open Rate:** {formatted_predictions['combined']['open_rate']:.2f}% (Change: {formatted_predictions['combined']['open_rate_diff']:.2f}%)
-        - **Predicted Click Rate:** {formatted_predictions['combined']['click_rate']:.2f}% (Change: {formatted_predictions['combined']['click_rate_diff']:.2f}%)
-        - **Predicted Optout Rate:** {formatted_predictions['combined']['optout_rate']:.2f}% (Change: {formatted_predictions['combined']['optout_rate_diff']:.2f}%)
-
-        ## Potential Impact
-        Implementing the combined recommendations could improve your open rate by {formatted_predictions['combined']['open_rate_diff']:.2f} percentage points,
-        which represents a {((formatted_predictions['combined']['open_rate'] - formatted_predictions['current']['open_rate']) / formatted_predictions['current']['open_rate'] * 100) if formatted_predictions['current']['open_rate'] > 0 else 0:.1f}% increase.
-        """
-
-        st.markdown(report)
+    # Tab 6: Forecast (New)
+    with tab6:
+        create_forecast_tab(customer_df, delivery_df, formatted_predictions, parameters, BOLAG_VALUES)
 
     # Tab 4: Model Management
-    with tab4:
-        # This is where you add the call to display_model_management
-        display_model_management(model_results)
+    if False:  # Disabled for now to make room for more important tabs
+        with tab4:
+            # This is where you add the call to display_model_management
+            display_model_management(model_results)
 
 if __name__ == "__main__":
     main()
