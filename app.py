@@ -16,6 +16,7 @@ from multi_metric_model import train_multi_metric_models, predict_metrics
 from recommendations import generate_recommendations, format_predictions
 from subject_recommendation import build_subject_recommendation_model, recommend_subject
 from visualizations import create_visualizations
+from model_metadata import track_model_performance, model_needs_retraining, get_model_version
 
 # Set page config
 st.set_page_config(
@@ -81,6 +82,10 @@ def build_models(customer_df, delivery_df):
             model_results = joblib.load(models_path)
             subject_data = joblib.load(subject_model_path)
             
+            # Add default version if not present (for backwards compatibility)
+            if 'version' not in model_results:
+                model_results['version'] = f"legacy-{datetime.datetime.now().strftime('%Y%m%d')}"
+            
             # Validate loaded models
             validation_result = validate_models(model_results, delivery_df, customer_df)
             
@@ -89,6 +94,10 @@ def build_models(customer_df, delivery_df):
                 model_results['subject_recommendations'] = subject_data['subject_recommendations']
                 model_results['subject_patterns'] = subject_data['subject_patterns']
                 st.success("✅ Successfully loaded pre-trained models from disk.")
+                
+                # Track model performance using the imported function
+                track_model_performance(model_results)
+                
                 return model_results
             else:
                 # Models failed validation
@@ -106,7 +115,9 @@ def build_models(customer_df, delivery_df):
     
     try:
         # Train multi-metric models
-        model_results = train_multi_metric_models(delivery_df, customer_df)
+        # Use enhanced_train_multi_metric_models to add versioning and metadata
+        from multi_metric_model import enhanced_train_multi_metric_models
+        model_results = enhanced_train_multi_metric_models(delivery_df, customer_df)
         
         # Build subject recommendation model
         subject_recommendations, subject_patterns = build_subject_recommendation_model(delivery_df)
@@ -114,6 +125,9 @@ def build_models(customer_df, delivery_df):
         # Add subject recommendations to model results
         model_results['subject_recommendations'] = subject_recommendations
         model_results['subject_patterns'] = subject_patterns
+        
+        # Track the initial performance of the newly trained model
+        track_model_performance(model_results)
         
         # Save the models
         try:
@@ -135,7 +149,6 @@ def build_models(customer_df, delivery_df):
     except Exception as e:
         st.error(f"🚨 Error building models: {e}")
         return None
-
 
 def validate_models(model_results, delivery_df, customer_df):
     """
@@ -307,6 +320,54 @@ def generate_model_improvement_recommendations(delivery_df, errors):
                          "from subject lines or adding customer engagement history.")
     
     return recommendations
+
+def track_prediction_performance(formatted_predictions, actual_metrics=None):
+    """
+    Track prediction performance for a campaign
+    
+    Parameters:
+    - formatted_predictions: The predictions made for the campaign
+    - actual_metrics: Optional actual metrics if available
+    """
+    import os
+    import pandas as pd
+    import datetime
+    
+    # Create a predictions log file path
+    predictions_log_path = "saved_models/prediction_log.csv"
+    
+    # Prepare prediction data
+    prediction_data = {
+        'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'pred_open_rate': formatted_predictions['current']['open_rate'],
+        'pred_click_rate': formatted_predictions['current']['click_rate'],
+        'pred_optout_rate': formatted_predictions['current']['optout_rate']
+    }
+    
+    # Add actual metrics if available
+    if actual_metrics:
+        prediction_data.update({
+            'actual_open_rate': actual_metrics.get('open_rate'),
+            'actual_click_rate': actual_metrics.get('click_rate'),
+            'actual_optout_rate': actual_metrics.get('optout_rate'),
+            'open_rate_error': actual_metrics.get('open_rate', 0) - formatted_predictions['current']['open_rate'],
+            'click_rate_error': actual_metrics.get('click_rate', 0) - formatted_predictions['current']['click_rate'],
+            'optout_rate_error': actual_metrics.get('optout_rate', 0) - formatted_predictions['current']['optout_rate']
+        })
+    
+    # Convert to DataFrame
+    pred_df = pd.DataFrame([prediction_data])
+    
+    # Save to CSV (append if exists)
+    if os.path.exists(predictions_log_path):
+        existing_log = pd.read_csv(predictions_log_path)
+        updated_log = pd.concat([existing_log, pred_df], ignore_index=True)
+        updated_log.to_csv(predictions_log_path, index=False)
+    else:
+        os.makedirs(os.path.dirname(predictions_log_path), exist_ok=True)
+        pred_df.to_csv(predictions_log_path, index=False)
+    
+    return prediction_data
 
 def track_model_performance(model_results, actual_metrics=None):
     """
@@ -547,6 +608,9 @@ def main():
         
         # Format predictions for display
         formatted_predictions = format_predictions(recommendations)
+        
+        # Track prediction performance
+        track_prediction_performance(formatted_predictions)
         
         # Show predictions
         st.header("Predictions & Recommendations")

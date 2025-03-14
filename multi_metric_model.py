@@ -1,14 +1,20 @@
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.model_selection import cross_val_score, GridSearchCV
+from sklearn.metrics import mean_absolute_error
+import xgboost as xgb
+from lightgbm import LGBMRegressor
+import datetime
+import os
+
+# Import functions from model_metadata
+from model_metadata import get_model_version, save_model_metadata
+
 def train_multi_metric_models(delivery_df, customer_df):
     """Train separate models for predicting open rate, click rate, and optout rate"""
-    import pandas as pd
-    import numpy as np
-    from sklearn.preprocessing import OneHotEncoder, StandardScaler
-    from sklearn.compose import ColumnTransformer
-    from sklearn.pipeline import Pipeline
-    from sklearn.model_selection import cross_val_score, GridSearchCV
-    from sklearn.metrics import mean_absolute_error
-    import xgboost as xgb
-    from lightgbm import LGBMRegressor
     
     # Process data with enhanced feature engineering
     from feature_engineering import enhanced_feature_engineering
@@ -146,83 +152,18 @@ def predict_metrics(input_data, models, metrics=None):
     
     return predictions
 
-def save_model_metadata(model_results, save_path="saved_models/model_metadata.json"):
-    """
-    Save model metadata for tracking and version control
-    
-    Parameters:
-    - model_results: Dictionary containing model information
-    - save_path: Path where to save the metadata
-    """
-    import json
-    import os
-    import datetime
-    
-    # Create directory if it doesn't exist
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    
-    # Get current version or create new one
-    version = model_results.get('version', get_model_version())
-    
-    metadata = {
-        "version": version,
-        "created_at": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        "data_stats": {
-            "num_campaigns": model_results.get('num_campaigns', 0),
-            "feature_count": len(model_results.get('feature_names', [])),
-            "categorical_features": list(model_results.get('categorical_values', {}).keys())
-        },
-        "performance": model_results.get('performance', {}),
-        "model_types": {
-            metric: type(model).__name__ 
-            for metric, model in model_results.get('models', {}).items()
-        }
-    }
-    
-    # Save metadata
-    with open(save_path, 'w') as f:
-        json.dump(metadata, f, indent=2)
-    
-    return metadata
-
-
-def load_model_metadata(path="saved_models/model_metadata.json"):
-    """
-    Load model metadata
-    
-    Parameters:
-    - path: Path to the metadata file
-    
-    Returns:
-    - Dictionary with model metadata, or None if file doesn't exist
-    """
-    import json
-    import os
-    
-    if not os.path.exists(path):
-        return None
-    
-    try:
-        with open(path, 'r') as f:
-            metadata = json.load(f)
-        return metadata
-    except Exception as e:
-        print(f"Error loading model metadata: {e}")
-        return None
-    
 def enhanced_train_multi_metric_models(delivery_df, customer_df):
     """Enhanced version of train_multi_metric_models that adds versioning and metadata"""
-    # Call the original function
-    from multi_metric_model import train_multi_metric_models
+    # Call the function directly
     model_results = train_multi_metric_models(delivery_df, customer_df)
     
-    # Add version
+    # Add version using imported function from model_metadata
     model_results['version'] = get_model_version()
     
     # Add data stats
     model_results['num_campaigns'] = len(delivery_df)
     
-    # Save metadata
+    # Save metadata using imported function from model_metadata
     save_model_metadata(model_results)
     
     return model_results
