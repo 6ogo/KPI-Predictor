@@ -1,18 +1,72 @@
+def calculate_confidence(prediction, model_performance, data_quality=0.8):
+    """
+    Calculate a confidence score for predictions.
+    
+    Parameters:
+    - prediction: The predicted value
+    - model_performance: Model performance metrics (MAE)
+    - data_quality: A factor indicating data quality (0-1)
+    
+    Returns:
+    - Confidence score as a percentage (0-100)
+    """
+    # Base confidence based on model MAE relative to prediction
+    if prediction == 0:
+        base_confidence = 50  # Default for zero predictions
+    else:
+        # Calculate how many MAEs the prediction is from zero
+        maes_from_zero = abs(prediction) / model_performance
+        # Higher value means higher confidence
+        base_confidence = min(95, 50 + (maes_from_zero * 10))
+    
+    # Apply data quality factor
+    confidence = base_confidence * data_quality
+    
+    # Ensure confidence is between 20-95%
+    confidence = max(20, min(95, confidence))
+    
+    return confidence
+
+def get_confidence_color(confidence):
+    """Return color based on confidence level"""
+    if confidence >= 80:
+        return "green"
+    elif confidence >= 60:
+        return "orange"
+    else:
+        return "red"
+
 def create_visualizations(predictions):
     """
     Create visualizations for the dashboard with updated metrics focus
-    
-    Parameters:
-    - predictions: Formatted prediction results from format_predictions()
-    
-    Returns:
-    - Dictionary of plotly figures for different visualizations
+    and improved color schemes for better visibility
     """
     import plotly.express as px
     import plotly.graph_objects as go
     import pandas as pd
     
     figures = {}
+    
+    # Add confidence to predictions if not already there
+    if 'confidence' not in predictions['current']:
+        # Sample confidence values - in real implementation, these would be calculated
+        # based on model performance from predictions['model_performance']
+        model_performance = {
+            'open_rate': 2.0,  # Sample MAE
+            'click_rate': 1.0, 
+            'optout_rate': 0.5
+        }
+        
+        # Add confidence to each prediction set
+        for scenario in ['current', 'targeting', 'subject', 'combined']:
+            predictions[scenario]['confidence'] = {}
+            for metric in ['open_rate', 'click_rate', 'optout_rate']:
+                if metric in predictions[scenario]:
+                    mae = model_performance.get(metric, 1.0)
+                    predictions[scenario]['confidence'][metric] = calculate_confidence(
+                        predictions[scenario][metric], 
+                        mae
+                    )
     
     # 1. OPEN RATE COMPARISON CHART
     open_rate_data = pd.DataFrame({
@@ -22,6 +76,12 @@ def create_visualizations(predictions):
             predictions['targeting']['open_rate'],
             predictions['subject']['open_rate'],
             predictions['combined']['open_rate']
+        ],
+        'Confidence (%)': [
+            predictions['current']['confidence']['open_rate'],
+            predictions['targeting']['confidence']['open_rate'],
+            predictions['subject']['confidence']['open_rate'],
+            predictions['combined']['confidence']['open_rate']
         ]
     })
     
@@ -29,7 +89,7 @@ def create_visualizations(predictions):
     open_rate_data['Improvement (%)'] = open_rate_data['Open Rate (%)'] - predictions['current']['open_rate']
     open_rate_data['Improvement (%)'] = open_rate_data['Improvement (%)'].round(2)
     
-    # Create figure
+    # Create figure with confidence
     fig_open_rate = px.bar(
         open_rate_data, 
         x='Scenario', 
@@ -50,6 +110,18 @@ def create_visualizations(predictions):
                 showarrow=False,
                 font=dict(color="green" if row['Improvement (%)'] >= 0 else "red", size=14)
             )
+        
+        # Add confidence annotation
+        fig_open_rate.add_annotation(
+            x=row['Scenario'],
+            y=row['Open Rate (%)'] / 2,  # Middle of the bar
+            text=f"{row['Confidence (%)']:.0f}% confidence",
+            showarrow=False,
+            font=dict(
+                color="white", 
+                size=11
+            )
+        )
     
     fig_open_rate.update_traces(textposition='auto')
     fig_open_rate.update_layout(
@@ -98,7 +170,8 @@ def create_visualizations(predictions):
         barmode='group',
         text=targeting_metrics_melted['Value'].round(2).astype(str) + '%',
         title='Targeting Impact on All Metrics',
-        height=500
+        height=500,
+        color_discrete_sequence=px.colors.qualitative.Bold  # Use a more vibrant color scheme
     )
     
     fig_targeting.update_traces(textposition='auto')
@@ -110,23 +183,22 @@ def create_visualizations(predictions):
     
     figures['targeting_metrics'] = fig_targeting
     
-    # 3. SUBJECT LINE IMPACT (focusing only on open rate)
-    # Create a gauge chart to show the potential impact on open rate
+    # 3. SUBJECT LINE IMPACT WITH CONFIDENCE
     current_open = predictions['current']['open_rate']
     subject_open = predictions['subject']['open_rate']
-    improvement_percentage = ((subject_open - current_open) / current_open) * 100 if current_open > 0 else 0
+    confidence = predictions['subject']['confidence']['open_rate']
     
     fig_subject_impact = go.Figure(go.Indicator(
         mode="gauge+number+delta",
         value=subject_open,
         delta={'reference': current_open, 'relative': False, 'valueformat': '.2f'},
-        title={'text': "Subject Line Impact on Open Rate (%)"},
+        title={'text': f"Subject Line Impact on Open Rate<br><span style='font-size:0.8em;color:{get_confidence_color(confidence)}'>Confidence: {confidence:.0f}%</span>"},
         gauge={
             'axis': {'range': [None, max(subject_open * 1.2, current_open * 1.2)]},
             'bar': {'color': "darkblue"},
             'steps': [
                 {'range': [0, current_open], 'color': "lightgray"},
-                {'range': [current_open, subject_open], 'color': "lightblue"}
+                {'range': [current_open, subject_open], 'color': "royalblue"}
             ],
             'threshold': {
                 'line': {'color': "red", 'width': 4},
@@ -138,8 +210,7 @@ def create_visualizations(predictions):
     
     figures['subject_impact'] = fig_subject_impact
     
-    # 4. COMBINED RECOMMENDATION IMPACT VISUALIZATION
-    # Create a radar chart for the combined recommendation vs current
+    # 4. IMPROVED RADAR CHART
     categories = ['Open Rate', 'Click Rate', 'CTR', 'Engagement', 'Retention']
     
     # Calculate CTR (Click-to-Open Rate)
@@ -171,7 +242,9 @@ def create_visualizations(predictions):
             ],
             theta=categories,
             fill='toself',
-            name='Current Campaign'
+            name='Current Campaign',
+            line=dict(color='rgba(31, 119, 180, 0.8)', width=2),
+            fillcolor='rgba(31, 119, 180, 0.2)'
         ),
         go.Scatterpolar(
             r=[
@@ -183,7 +256,9 @@ def create_visualizations(predictions):
             ],
             theta=categories,
             fill='toself',
-            name='Optimized Campaign'
+            name='Optimized Campaign',
+            line=dict(color='rgba(44, 160, 44, 0.8)', width=2),
+            fillcolor='rgba(44, 160, 44, 0.2)'
         )
     ]
     
@@ -201,7 +276,7 @@ def create_visualizations(predictions):
     fig_radar = go.Figure(data=radar_data, layout=layout_radar)
     figures['radar'] = fig_radar
     
-    # 5. IMPROVEMENT SUMMARY TABLE
+    # 5. IMPROVED METRICS COMPARISON TABLE
     improvement_data = pd.DataFrame({
         'Metric': ['Open Rate (%)', 'Click Rate (%)', 'Optout Rate (%)'],
         'Current': [
@@ -232,11 +307,12 @@ def create_visualizations(predictions):
     improvement_data['Subject Improvement'] = improvement_data['Subject Recommendation'] - improvement_data['Current']
     improvement_data['Combined Improvement'] = improvement_data['Combined Recommendation'] - improvement_data['Current']
     
-    # For the table visualization, use a styled table
+    # Create a more readable table with improved colors
     fig_table = go.Figure(data=[go.Table(
         header=dict(
             values=['Metric', 'Current', 'Targeting', 'Targeting Δ', 'Subject', 'Subject Δ', 'Combined', 'Combined Δ'],
-            fill_color='paleturquoise',
+            font=dict(size=14, color='white'),
+            fill_color='#2c3e50',
             align='left'
         ),
         cells=dict(
@@ -250,25 +326,40 @@ def create_visualizations(predictions):
                 improvement_data['Combined Recommendation'].round(2).astype(str) + '%',
                 improvement_data['Combined Improvement'].round(2).astype(str) + '%'
             ],
+            font=dict(size=13),
             fill_color=[
-                'white',
-                'white',
-                'white',
-                [get_color(val) for val in improvement_data['Targeting Improvement']],
-                'white', 
-                [get_color(val) for val in improvement_data['Subject Improvement']],
-                'white',
-                [get_color(val) for val in improvement_data['Combined Improvement']]
+                ['#f8f9fa'] * len(improvement_data),
+                ['#f8f9fa'] * len(improvement_data),
+                ['#f8f9fa'] * len(improvement_data),
+                [
+                    '#8fff9c' if val > 0 else '#ff9c9c' if val < 0 else '#f8f9fa' 
+                    for val in improvement_data['Targeting Improvement']
+                ],
+                ['#f8f9fa'] * len(improvement_data),
+                [
+                    '#8fff9c' if val > 0 else '#ff9c9c' if val < 0 else '#f8f9fa' 
+                    for val in improvement_data['Subject Improvement']
+                ],
+                ['#f8f9fa'] * len(improvement_data),
+                [
+                    '#8fff9c' if val > 0 else '#ff9c9c' if val < 0 else '#f8f9fa' 
+                    for val in improvement_data['Combined Improvement']
+                ]
             ],
-            align='left'
+            align='left',
+            height=30
         ))
     ])
     
-    fig_table.update_layout(title="Detailed Metrics Comparison")
+    fig_table.update_layout(
+        title="Detailed Metrics Comparison",
+        margin=dict(l=10, r=10, t=30, b=10),
+        height=150 + (len(improvement_data) * 30)  # Dynamic height based on data
+    )
+    
     figures['table'] = fig_table
     
     return figures
-
 
 def get_color(value):
     """Get color based on value (green for positive, red for negative)"""

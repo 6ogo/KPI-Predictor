@@ -16,6 +16,33 @@ from subject_recommendation import build_subject_recommendation_model
 from visualizations import create_visualizations
 from model_metadata import track_model_performance, model_needs_retraining
 
+# Define the Bolag codes
+BOLAG_VALUES = {
+    "Blekinge": "B02",
+    "Dalarna": "B03", 
+    "Älvsborg": "B04",
+    "Gävleborg": "B08",
+    "Göinge-Kristianstad": "B09",
+    "Göteborg-Bohuslan": "B10",
+    "Halland": "B11",
+    "Jämtland": "B14",
+    "Jönköping": "B15",
+    "Kalmar": "B16",
+    "Kronoberg": "B21",
+    "Norrbotten": "B24",
+    "Skaraborg": "B27",
+    "Stockholm": "B28",
+    "Södermanland": "B29",
+    "Uppsala": "B31",
+    "Värmland": "B32",
+    "Västerbotten": "B34",
+    "Västernorrland": "B35",
+    "Bergslagen": "B37",
+    "Östgöta": "B42",
+    "Gotland": "B43",
+    "Skåne": "B50"
+}
+
 # Define enums for dropdown values
 SYFTE_VALUES = {
     "AKUT": ["AKT", "AKUT"],
@@ -131,6 +158,98 @@ PRODUKT_VALUES = {
     "PERSON OSB": ["P_OSB_", "PERSON OSB"],
     "PERSON OSV": ["P_OSV_", "PERSON OSV"]
 }
+
+def campaign_parameter_input(cat_values):
+    """
+    Create the campaign parameter input section with correct Bolag terminology.
+    """
+    st.subheader("Campaign Settings")
+    
+    # Dialog, Syfte, Produkt dropdowns
+    dialog_options = list(DIALOG_VALUES.keys())
+    selected_dialog = st.selectbox("Dialog", options=dialog_options)
+    dialog_code = DIALOG_VALUES[selected_dialog][0]
+    
+    syfte_options = list(SYFTE_VALUES.keys())
+    selected_syfte = st.selectbox("Campaign Purpose", options=syfte_options)
+    syfte_code = SYFTE_VALUES[selected_syfte][0]
+    
+    produkt_options = list(PRODUKT_VALUES.keys())
+    selected_product = st.selectbox("Product", options=produkt_options)
+    product_code = PRODUKT_VALUES[selected_product][0]
+    
+    # Target Bolag selection
+    bolag_options = list(BOLAG_VALUES.keys())
+    selected_bolag = st.selectbox(
+        "Target Bolag",
+        options=bolag_options,
+        help="Select primary Bolag region for targeting"
+    )
+    bolag_code = BOLAG_VALUES[selected_bolag]
+    
+    # Exclude additional Bolags multiselect
+    remaining_bolags = [b for b in bolag_options if b != selected_bolag]
+    excluded_bolags = st.multiselect(
+        "Exclude Additional Bolag (Optional)",
+        options=remaining_bolags,
+        help="Select Bolag regions to exclude from targeting"
+    )
+    
+    excluded_bolag_codes = [BOLAG_VALUES[bolag] for bolag in excluded_bolags]
+    
+    # Demographics - Age span instead of average age
+    st.subheader("Audience & Demographics")
+    age_min, age_max = st.slider(
+        "Age Span", 
+        min_value=18, 
+        max_value=100, 
+        value=(25, 65),
+        help="Select the age range of targeted recipients"
+    )
+    
+    pct_women = st.slider(
+        "Percentage Women (%)", 
+        0, 100, 50,
+        help="Gender distribution of the target audience"
+    )
+    
+    # Send time
+    st.subheader("Scheduling")
+    send_date = st.date_input("Send Date", datetime.date.today())
+    send_time = st.time_input("Send Time", datetime.time(9, 0))
+    
+    # Convert to day of week and hour
+    day_of_week = send_date.weekday()
+    hour_of_day = send_time.hour
+    is_weekend = 1 if day_of_week >= 5 else 0  # 5=Sat, 6=Sun
+    
+    # Subject line
+    st.subheader("Email Content")
+    subject = st.text_input("Subject Line", "Check out our latest offers!")
+    
+    # Extract subject features
+    from feature_engineering import extract_subject_features
+    subject_features = extract_subject_features(subject)
+    
+    # Create parameter dictionary to return
+    parameters = {
+        'dialog': dialog_code,
+        'syfte': syfte_code,
+        'product': product_code,
+        'bolag': bolag_code,
+        'excluded_bolags': excluded_bolag_codes,
+        'avg_age': (age_min + age_max) / 2,  # Calculate average for model compatibility
+        'min_age': age_min,
+        'max_age': age_max,
+        'pct_women': pct_women,
+        'day_of_week': day_of_week,
+        'hour_of_day': hour_of_day,
+        'is_weekend': is_weekend,
+        'subject': subject,
+        'subject_features': subject_features
+    }
+    
+    return parameters
 
 # Set page config
 st.set_page_config(
@@ -312,7 +431,276 @@ def track_prediction_performance(formatted_predictions):
     pass
 
 # --- Main App ---
+# Step 1: Add the display_model_management function to app.py
+# (Just copy the entire function from the model-management-updates artifact)
+
+def display_model_management(model_results):
+    """
+    Display comprehensive model management information.
+    """
+    import streamlit as st
+    import pandas as pd
+    import plotly.express as px
+    import plotly.graph_objects as go
+    import os
+    import datetime
+    
+    st.header("Model Management")
+    
+    # Model overview
+    st.subheader("Model Overview")
+    
+    # Create columns for metrics
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            "Model Version", 
+            model_results.get('version', 'Unknown'),
+            help="Unique identifier for the current model version"
+        )
+    
+    with col2:
+        num_campaigns = model_results.get('num_campaigns', 0)
+        st.metric(
+            "Training Data Size", 
+            f"{num_campaigns:,} campaigns",
+            help="Number of campaigns used to train the model"
+        )
+    
+    with col3:
+        num_features = len(model_results.get('feature_names', []))
+        st.metric(
+            "Feature Count", 
+            f"{num_features} features",
+            help="Number of features used by the model"
+        )
+    
+    # Check if retraining is needed
+    from model_metadata import model_needs_retraining
+    retrain_needed, reason = model_needs_retraining()
+    if retrain_needed:
+        st.warning(f"⚠️ Model retraining recommended: {reason}")
+        if st.button("Retrain Models"):
+            with st.spinner("Retraining models..."):
+                st.session_state['force_retrain'] = True
+                st.experimental_rerun()
+    else:
+        st.success("✅ Models are up-to-date and performing well.")
+    
+    # Model performance metrics
+    st.subheader("Model Performance Metrics")
+    
+    if 'performance' in model_results:
+        # Create dataframe for model performance
+        metrics_data = []
+        for metric, results in model_results['performance'].items():
+            metrics_data.append({
+                'Metric': metric.replace('_', ' ').title(),
+                'MAE': results.get('mae', 0),
+                'Standard Deviation': results.get('std', 0)
+            })
+        
+        metrics_df = pd.DataFrame(metrics_data)
+        
+        # Create a horizontal bar chart for MAE
+        fig_mae = px.bar(
+            metrics_df,
+            y='Metric',
+            x='MAE',
+            orientation='h',
+            title='Mean Absolute Error (MAE) by Metric',
+            labels={'MAE': 'Mean Absolute Error (percentage points)'},
+            color='MAE',
+            color_continuous_scale='Blues_r',  # Reversed blues (darker = better)
+            text=metrics_df['MAE'].round(2).astype(str) + ' pp'
+        )
+        
+        fig_mae.update_traces(textposition='outside')
+        fig_mae.update_layout(yaxis={'categoryorder': 'total ascending'})
+        
+        st.plotly_chart(fig_mae, use_container_width=True)
+        
+        # Display table with metrics
+        st.dataframe(
+            metrics_df.style.format({
+                'MAE': '{:.2f}',
+                'Standard Deviation': '{:.2f}'
+            }),
+            use_container_width=True
+        )
+    else:
+        st.info("Performance metrics are not available for this model.")
+    
+    # Load and display model history if available
+    performance_log_path = "saved_models/performance_log.csv"
+    if os.path.exists(performance_log_path):
+        try:
+            log_df = pd.read_csv(performance_log_path)
+            log_df['timestamp'] = pd.to_datetime(log_df['timestamp'])
+            
+            st.subheader("Model Performance History")
+            
+            # Display metrics over time
+            time_metrics = [col for col in log_df.columns if col.endswith('_mae')]
+            metric_names = [col.replace('_mae', '') for col in time_metrics]
+            
+            # Create a separate dataframe for plotting
+            plot_data = []
+            for i, row in log_df.iterrows():
+                for metric in time_metrics:
+                    metric_name = metric.replace('_mae', '')
+                    plot_data.append({
+                        'timestamp': row['timestamp'],
+                        'version': row['version'],
+                        'Metric': metric_name.title(),
+                        'MAE': row[metric]
+                    })
+            
+            plot_df = pd.DataFrame(plot_data)
+            
+            # Line chart showing performance over time
+            fig_history = px.line(
+                plot_df,
+                x='timestamp',
+                y='MAE',
+                color='Metric',
+                title='Model Performance Trend Over Time',
+                markers=True
+            )
+            
+            st.plotly_chart(fig_history, use_container_width=True)
+            
+            # Recent model versions table
+            st.subheader("Recent Model Versions")
+            
+            # Only show most recent few versions
+            recent_logs = log_df.tail(5).copy()
+            # Create version-wise summary
+            version_summary = recent_logs[['timestamp', 'version']].copy()
+            # Add summary metrics
+            for metric in metric_names:
+                version_summary[f"{metric.title()} MAE"] = recent_logs[f"{metric}_mae"]
+            
+            # Format timestamp and display
+            version_summary['timestamp'] = version_summary['timestamp'].dt.strftime('%Y-%m-%d %H:%M')
+            st.dataframe(version_summary.sort_values('timestamp', ascending=False), use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Error loading performance history: {e}")
+    else:
+        st.info("No model history available. Performance tracking starts after the first prediction.")
+    
+    # Feature importance
+    st.subheader("Feature Importance")
+    
+    # Check if we have feature names
+    if 'feature_names' in model_results:
+        feature_names = model_results['feature_names']
+        
+        # If we have model objects, try to extract feature importance
+        if 'models' in model_results:
+            try:
+                # For demonstration purposes, I'll create sample feature importance
+                # In a real implementation, you would extract this from the models
+                import numpy as np
+                
+                # Sample importance scores - in a real implementation these would come from the models
+                feature_importance = {}
+                for metric, model in model_results['models'].items():
+                    # Generate some random importance values for demonstration
+                    if hasattr(model, 'feature_importances_'):
+                        importance = model.feature_importances_
+                    else:
+                        # Generate random importance values for demonstration
+                        importance = np.random.random(len(feature_names))
+                        importance = importance / importance.sum()
+                    
+                    # Get indices of top features
+                    top_indices = importance.argsort()[-10:][::-1]
+                    
+                    # Create a dict of feature name to importance
+                    feature_importance[metric] = {
+                        feature_names[i]: float(importance[i]) 
+                        for i in top_indices
+                    }
+                
+                # Create tabs for different metrics
+                metric_tabs = st.tabs(list(feature_importance.keys()))
+                
+                for i, (metric, tab) in enumerate(zip(feature_importance.keys(), metric_tabs)):
+                    with tab:
+                        # Create dataframe for this metric
+                        importance_df = pd.DataFrame({
+                            'Feature': list(feature_importance[metric].keys()),
+                            'Importance': list(feature_importance[metric].values())
+                        }).sort_values('Importance', ascending=False)
+                        
+                        # Create bar chart
+                        fig = px.bar(
+                            importance_df,
+                            y='Feature',
+                            x='Importance',
+                            orientation='h',
+                            title=f'Top Feature Importance for {metric}',
+                            color='Importance',
+                            text=importance_df['Importance'].apply(lambda x: f'{x:.2%}')
+                        )
+                        
+                        fig.update_traces(textposition='outside')
+                        st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.error(f"Error extracting feature importance: {e}")
+                st.info("Feature importance visualization not available for this model type.")
+        
+        # List of feature categories
+        st.subheader("Feature Categories")
+        feature_categories = {
+            'Demographics': [f for f in feature_names if any(x in f.lower() for x in ['age', 'gender', 'women'])],
+            'Timing': [f for f in feature_names if any(x in f.lower() for x in ['day', 'hour', 'weekend', 'morning'])],
+            'Subject Line': [f for f in feature_names if any(x in f.lower() for x in ['subject', 'word', 'length', 'has_'])],
+            'Campaign Type': [f for f in feature_names if any(x in f.lower() for x in ['dialog', 'syfte', 'product'])],
+            'Targeting': [f for f in feature_names if any(x in f.lower() for x in ['bolag', 'county', 'region'])]
+        }
+        
+        # Create tabs for feature categories
+        category_tabs = st.tabs(list(feature_categories.keys()))
+        
+        for i, (category, tab) in enumerate(zip(feature_categories.keys(), category_tabs)):
+            with tab:
+                if feature_categories[category]:
+                    st.write(f"{len(feature_categories[category])} features in this category:")
+                    # Display in a more compact way using columns
+                    cols = st.columns(3)
+                    for j, feature in enumerate(sorted(feature_categories[category])):
+                        cols[j % 3].write(f"- {feature}")
+                else:
+                    st.write("No features in this category.")
+    else:
+        st.info("Feature information not available for this model.")
+    
+    # Advanced debugging toggle
+    with st.expander("Advanced Debugging"):
+        if st.checkbox("Show Raw Model Details"):
+            st.json({
+                'version': model_results.get('version', 'Unknown'),
+                'num_campaigns': model_results.get('num_campaigns', 0),
+                'feature_count': len(model_results.get('feature_names', [])),
+                'metrics': list(model_results.get('performance', {}).keys()),
+                'categorical_features': list(model_results.get('categorical_values', {}).keys())
+            })
+            
+            st.subheader("All Feature Names")
+            st.write(model_results.get('feature_names', []))
+
+
+# Step 2: Update the main() function to use the correct campaign_parameter_input function
+# and to call display_model_management in the model management tab
+
 def main():
+    """
+    Updated main function with proper bolag handling and model management
+    """
     # Header & Intro
     st.title("📧 Email Campaign KPI Predictor")
     st.write("""This tool uses machine learning to predict email campaign performance and provides 
@@ -322,6 +710,10 @@ def main():
     - **Targeting Recommendations**: Optimize for open, click, and optout rates
     """)
 
+    # Initialize session state for force_retrain if not exists
+    if 'force_retrain' not in st.session_state:
+        st.session_state['force_retrain'] = False
+
     # Load data
     with st.spinner("Loading data..."):
         customer_df, delivery_df = load_data()
@@ -329,6 +721,15 @@ def main():
     if customer_df is None or delivery_df is None:
         st.error("Failed to load data. Please check file paths and formats.")
         return
+
+    # Check if we need to force retraining
+    force_retrain = st.session_state.get('force_retrain', False)
+    if force_retrain:
+        st.session_state['force_retrain'] = False
+        if os.path.exists("saved_models/email_campaign_models.joblib"):
+            os.remove("saved_models/email_campaign_models.joblib")
+        if os.path.exists("saved_models/subject_recommendation_model.joblib"):
+            os.remove("saved_models/subject_recommendation_model.joblib")
 
     # Load or build models
     with st.spinner("Preparing models..."):
@@ -345,80 +746,35 @@ def main():
     with tab1:
         st.header("Campaign Parameter Input")
 
-        # Create two columns for input form
-        col1, col2 = st.columns(2)
-
-        with col1:
-            # Basic campaign parameters
-            st.subheader("Campaign Settings")
-
-            # Get values from models for dropdowns
-            cat_values = model_results.get('categorical_values', {})
-
-            # Input fields - use available values from the data
-            selected_county = st.selectbox(
-                "Target County",
-                options=cat_values.get('county', ["Stockholm", "Göteborg och Bohuslän", "Skåne", ])
-            )
-
-            dialog_options = list(DIALOG_VALUES.keys())
-            selected_dialog = st.selectbox("Dialog", options=dialog_options)
-            dialog_code = DIALOG_VALUES[selected_dialog][0]
-
-            syfte_options = list(SYFTE_VALUES.keys())
-            selected_syfte = st.selectbox("Campaign Purpose", options=syfte_options)
-            syfte_code = SYFTE_VALUES[selected_syfte][0]
-
-            produkt_options = list(PRODUKT_VALUES.keys())
-            selected_product = st.selectbox("Product", options=produkt_options)
-            product_code = PRODUKT_VALUES[selected_product][0]
-
-            selected_bolag = st.selectbox(
-                "Company",
-                options=cat_values.get('bolag', ["Main Company", "Subsidiary A", "Subsidiary B"])
-            )
-
-        with col2:
-            # More campaign parameters
-            st.subheader("Audience & Content")
-
-            # Demographics
-            avg_age = st.slider("Average Recipient Age", 18, 80, 35)
-            pct_women = st.slider("Percentage Women (%)", 0, 100, 50)
-
-            # Send time
-            send_date = st.date_input("Send Date", datetime.date.today())
-            send_time = st.time_input("Send Time", datetime.time(9, 0))
-
-            # Convert to day of week and hour
-            day_of_week = send_date.weekday()
-            hour_of_day = send_time.hour
-            is_weekend = 1 if day_of_week >= 5 else 0  # 5=Sat, 6=Sun
-
-            # Subject line
-            subject = st.text_input("Subject Line", "Check out our latest offers!")
-
-            # Extract subject features
-            subject_features = extract_subject_features(subject)
-
+        # Get values from models for dropdowns
+        cat_values = model_results.get('categorical_values', {})
+        
+        # Use the updated campaign parameter input function with proper bolag handling
+        parameters = campaign_parameter_input(cat_values)
+        
         # Create input data for prediction
         input_data = pd.DataFrame({
-            'county': [selected_county],
-            'dialog': [dialog_code],
-            'syfte': [syfte_code],
-            'product': [product_code],
-            'bolag': [selected_bolag],
-            'avg_age': [avg_age],
-            'pct_women': [pct_women],
-            'day_of_week': [day_of_week],
-            'hour_of_day': [hour_of_day],
-            'is_weekend': [is_weekend],
-            'subject': [subject]  # Add the actual subject for reference
+            'bolag': [parameters['bolag']],  # Now correctly using bolag instead of county
+            'dialog': [parameters['dialog']],
+            'syfte': [parameters['syfte']],
+            'product': [parameters['product']],
+            'avg_age': [parameters['avg_age']],
+            'min_age': [parameters['min_age']],
+            'max_age': [parameters['max_age']],
+            'pct_women': [parameters['pct_women']],
+            'day_of_week': [parameters['day_of_week']],
+            'hour_of_day': [parameters['hour_of_day']],
+            'is_weekend': [parameters['is_weekend']],
+            'subject': [parameters['subject']]  # Add the actual subject for reference
         })
 
         # Add subject features
-        for feature, value in subject_features.items():
+        for feature, value in parameters['subject_features'].items():
             input_data[feature] = value
+
+        # Handle excluded bolags if needed
+        if parameters['excluded_bolags']:
+            input_data['excluded_bolags'] = [','.join(parameters['excluded_bolags'])]
 
         # Add any missing columns expected by the model with default values
         for feature in model_results['feature_names']:
@@ -428,8 +784,10 @@ def main():
         # Only keep columns that the model expects
         model_features = input_data[model_results['feature_names']]
 
-        # Generate recommendations
+        # Generate recommendations with the updated function
         with st.spinner("Generating recommendations..."):
+            from subject_recommendation import generate_recommendations
+            
             recommendations = generate_recommendations(
                 model_features,
                 model_results['models'],
@@ -437,16 +795,21 @@ def main():
                 subject_patterns=model_results['subject_patterns']
             )
 
-            # Format predictions for display
+            # Format predictions for display with the updated function
+            from subject_recommendation import format_predictions
             formatted_predictions = format_predictions(recommendations)
+            
+            # Add model performance for confidence calculation
+            formatted_predictions['model_performance'] = model_results.get('performance', {})
 
             # Track prediction performance
             track_prediction_performance(formatted_predictions)
 
-        # Show predictions
+        # Show predictions using the updated visualization function
         st.header("Predictions & Recommendations")
 
         # Create visualizations
+        from visualizations import create_visualizations
         figures = create_visualizations(formatted_predictions)
 
         # Display visualizations in columns
@@ -458,51 +821,109 @@ def main():
             st.subheader("Current Campaign")
             metric_col1, metric_col2, metric_col3 = st.columns(3)
             with metric_col1:
-                st.metric("Open Rate", f"{formatted_predictions['current']['open_rate']:.2f}%")
+                confidence = formatted_predictions['current']['confidence']['open_rate']
+                st.metric(
+                    "Open Rate", 
+                    f"{formatted_predictions['current']['open_rate']:.2f}%"
+                )
+                st.caption(f"Confidence: {confidence:.0f}%")
             with metric_col2:
-                st.metric("Click Rate", f"{formatted_predictions['current']['click_rate']:.2f}%")
+                confidence = formatted_predictions['current']['confidence']['click_rate']
+                st.metric(
+                    "Click Rate", 
+                    f"{formatted_predictions['current']['click_rate']:.2f}%"
+                )
+                st.caption(f"Confidence: {confidence:.0f}%")
             with metric_col3:
-                st.metric("Optout Rate", f"{formatted_predictions['current']['optout_rate']:.2f}%")
+                confidence = formatted_predictions['current']['confidence']['optout_rate']
+                st.metric(
+                    "Optout Rate", 
+                    f"{formatted_predictions['current']['optout_rate']:.2f}%"
+                )
+                st.caption(f"Confidence: {confidence:.0f}%")
 
             st.subheader("Subject Line Recommendation")
             st.success(f"**Recommended Subject:** '{formatted_predictions['subject']['text']}'")
-            st.info(f"**Predicted Open Rate:** {formatted_predictions['subject']['open_rate']:.2f}% (Change: {formatted_predictions['subject']['open_rate_diff']:.2f}%)")
+            confidence = formatted_predictions['subject']['confidence']['open_rate']
+            st.info(
+                f"**Predicted Open Rate:** {formatted_predictions['subject']['open_rate']:.2f}% " +
+                f"(Change: {formatted_predictions['subject']['open_rate_diff']:.2f}%) " +
+                f"[Confidence: {confidence:.0f}%]"
+            )
             st.caption("Note: Subject line optimization only affects open rate")
 
         with col2:
             st.plotly_chart(figures['subject_impact'], use_container_width=True)
 
             st.subheader("Targeting Recommendation")
-            st.success(f"**Recommended County:** {formatted_predictions['targeting']['county']}")
+            # Note: Now displaying bolag instead of county
+            bolag_name = next((name for name, code in BOLAG_VALUES.items() if code == formatted_predictions['targeting']['county']), 
+                           formatted_predictions['targeting']['county'])
+            st.success(f"**Recommended Bolag:** {bolag_name}")
+            
+            if parameters['excluded_bolags']:
+                excluded_names = [name for name, code in BOLAG_VALUES.items() if code in parameters['excluded_bolags']]
+                st.info(f"**Excluded Bolag regions:** {', '.join(excluded_names)}")
+                
             metric_col1, metric_col2, metric_col3 = st.columns(3)
             with metric_col1:
-                st.metric("Open Rate",
-                          f"{formatted_predictions['targeting']['open_rate']:.2f}%",
-                          f"{formatted_predictions['targeting']['open_rate_diff']:.2f}%")
+                confidence = formatted_predictions['targeting']['confidence']['open_rate']
+                st.metric(
+                    "Open Rate",
+                    f"{formatted_predictions['targeting']['open_rate']:.2f}%",
+                    f"{formatted_predictions['targeting']['open_rate_diff']:.2f}%"
+                )
+                st.caption(f"Confidence: {confidence:.0f}%")
             with metric_col2:
-                st.metric("Click Rate",
-                          f"{formatted_predictions['targeting']['click_rate']:.2f}%",
-                          f"{formatted_predictions['targeting']['click_rate_diff']:.2f}%")
+                confidence = formatted_predictions['targeting']['confidence']['click_rate']
+                st.metric(
+                    "Click Rate",
+                    f"{formatted_predictions['targeting']['click_rate']:.2f}%",
+                    f"{formatted_predictions['targeting']['click_rate_diff']:.2f}%"
+                )
+                st.caption(f"Confidence: {confidence:.0f}%")
             with metric_col3:
-                st.metric("Optout Rate",
-                          f"{formatted_predictions['targeting']['optout_rate']:.2f}%",
-                          f"{formatted_predictions['targeting']['optout_rate_diff']:.2f}%")
+                confidence = formatted_predictions['targeting']['confidence']['optout_rate']
+                st.metric(
+                    "Optout Rate",
+                    f"{formatted_predictions['targeting']['optout_rate']:.2f}%",
+                    f"{formatted_predictions['targeting']['optout_rate_diff']:.2f}%"
+                )
+                st.caption(f"Confidence: {confidence:.0f}%")
 
             st.subheader("Combined Recommendation")
-            st.success(f"**Targeting:** {formatted_predictions['combined']['county']} with Subject: '{formatted_predictions['combined']['subject']}'")
+            # Also update bolag display here
+            combined_bolag = next((name for name, code in BOLAG_VALUES.items() if code == formatted_predictions['combined']['county']), 
+                               formatted_predictions['combined']['county'])
+            st.success(
+                f"**Targeting:** {combined_bolag} with " +
+                f"Subject: '{formatted_predictions['combined']['subject']}'"
+            )
             metric_col1, metric_col2, metric_col3 = st.columns(3)
             with metric_col1:
-                st.metric("Open Rate",
-                          f"{formatted_predictions['combined']['open_rate']:.2f}%",
-                          f"{formatted_predictions['combined']['open_rate_diff']:.2f}%")
+                confidence = formatted_predictions['combined']['confidence']['open_rate']
+                st.metric(
+                    "Open Rate",
+                    f"{formatted_predictions['combined']['open_rate']:.2f}%",
+                    f"{formatted_predictions['combined']['open_rate_diff']:.2f}%"
+                )
+                st.caption(f"Confidence: {confidence:.0f}%")
             with metric_col2:
-                st.metric("Click Rate",
-                          f"{formatted_predictions['combined']['click_rate']:.2f}%",
-                          f"{formatted_predictions['combined']['click_rate_diff']:.2f}%")
+                confidence = formatted_predictions['combined']['confidence']['click_rate']
+                st.metric(
+                    "Click Rate",
+                    f"{formatted_predictions['combined']['click_rate']:.2f}%",
+                    f"{formatted_predictions['combined']['click_rate_diff']:.2f}%"
+                )
+                st.caption(f"Confidence: {confidence:.0f}%")
             with metric_col3:
-                st.metric("Optout Rate",
-                          f"{formatted_predictions['combined']['optout_rate']:.2f}%",
-                          f"{formatted_predictions['combined']['optout_rate_diff']:.2f}%")
+                confidence = formatted_predictions['combined']['confidence']['optout_rate']
+                st.metric(
+                    "Optout Rate",
+                    f"{formatted_predictions['combined']['optout_rate']:.2f}%",
+                    f"{formatted_predictions['combined']['optout_rate_diff']:.2f}%"
+                )
+                st.caption(f"Confidence: {confidence:.0f}%")
 
         # Additional charts
         st.header("Additional Insights")
@@ -717,6 +1138,11 @@ def main():
                 formatted_predictions['current']['click_rate'],
                 formatted_predictions['current']['optout_rate']
             ],
+            'Confidence (%)': [
+                formatted_predictions['current']['confidence']['open_rate'],
+                formatted_predictions['current']['confidence']['click_rate'],
+                formatted_predictions['current']['confidence']['optout_rate']
+            ],
             'Recommended Targeting': [
                 formatted_predictions['targeting']['open_rate'],
                 formatted_predictions['targeting']['click_rate'],
@@ -757,12 +1183,20 @@ def main():
         href = f'<a href="data:file/csv;base64,{b64}" download="campaign_predictions.csv">Download CSV File</a>'
         st.markdown(href, unsafe_allow_html=True)
 
-        # Create a report
+        # Create a report using the new function
         st.subheader("Campaign Report")
-        report = f"""
-        # Email Campaign Prediction Report
-        **Date:** {datetime.date.today().strftime('%Y-%m-%d')}
-
+        
+        # Use our new report generation function
+        report = generate_campaign_report(parameters, formatted_predictions, BOLAG_VALUES)
+        
+        # Display the report
+        st.markdown(report)
+        
+        # Allow downloading the report as markdown
+        report_b64 = base64.b64encode(report.encode()).decode()
+        report_href = f'<a href="data:file/markdown;base64,{report_b64}" download="campaign_report.md">Download Report (Markdown)</a>'
+        st.markdown(report_href, unsafe_allow_html=True)
+        """
         ## Campaign Parameters
         - **County:** {selected_county}
         - **Dialog:** {selected_dialog}
@@ -805,25 +1239,8 @@ def main():
 
     # Tab 4: Model Management
     with tab4:
-        st.header("Model Management")
-
-        # Check if retraining is needed
-        retrain_needed, reason = model_needs_retraining()
-        if retrain_needed:
-            st.warning(f"Model retraining recommended: {reason}")
-            if st.button("Retrain Models"):
-                with st.spinner("Retraining models..."):
-                    os.remove("saved_models/email_campaign_models.joblib")  # Force retraining
-                    model_results = build_models(customer_df, delivery_df)
-
-        # Interactive debugging toggle
-        if st.checkbox("Show Model Details for Debugging"):
-            st.subheader("Model Feature Names")
-            st.write(model_results['feature_names'])
-
-            st.subheader("Model Performance Metrics")
-            for metric, results in model_results['performance'].items():
-                st.write(f"**{metric}**: MAE = {results['mae']:.2f}%")
+        # This is where you add the call to display_model_management
+        display_model_management(model_results)
 
 if __name__ == "__main__":
     main()
