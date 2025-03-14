@@ -1,3 +1,40 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime
+import re
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+def extract_subject_features(subject):
+    """
+    Extract features from email subject lines
+    
+    Parameters:
+    - subject: Email subject line text
+    
+    Returns:
+    - Dictionary of extracted features
+    """
+    if not isinstance(subject, str):
+        return {
+            'length': 0,
+            'has_personalization': 0,
+            'has_question': 0,
+            'has_numbers': 0,
+            'has_uppercase_words': 0,
+            'has_emoji': 0,
+            'word_count': 0
+        }
+        
+    features = {}
+    features['length'] = len(subject)
+    features['has_personalization'] = 1 if re.search(r'\b(your|you|du|din|ditt|dina)\b', subject.lower()) else 0
+    features['has_question'] = 1 if '?' in subject else 0
+    features['has_numbers'] = 1 if re.search(r'\d', subject) else 0
+    features['has_uppercase_words'] = 1 if re.search(r'\b[A-Z]{2,}\b', subject) else 0
+    features['has_emoji'] = 1 if re.search(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF]', subject) else 0
+    features['word_count'] = len(subject.split())
+    return features
+
 def enhanced_feature_engineering(delivery_df, customer_df):
     """Enhanced feature engineering for email campaign data"""
     import pandas as pd
@@ -7,35 +44,12 @@ def enhanced_feature_engineering(delivery_df, customer_df):
     from sklearn.feature_extraction.text import TfidfVectorizer
 
     # --- Time-based features ---
-    delivery_df['contact_date'] = pd.to_datetime(delivery_df['Contact date'])
-    delivery_df['day_of_week'] = delivery_df['contact_date'].dt.dayofweek
-    delivery_df['hour_of_day'] = delivery_df['contact_date'].dt.hour
+    delivery_df['Date'] = pd.to_datetime(delivery_df['Date'])
+    delivery_df['day_of_week'] = delivery_df['Date'].dt.dayofweek
+    delivery_df['hour_of_day'] = delivery_df['Date'].dt.hour
     delivery_df['is_weekend'] = delivery_df['day_of_week'].isin([5, 6]).astype(int)
     
     # --- Subject line features ---
-    # Extract more meaningful features from subject lines
-    def extract_subject_features(subject):
-        if not isinstance(subject, str):
-            return {
-                'length': 0,
-                'has_personalization': 0,
-                'has_question': 0,
-                'has_numbers': 0,
-                'has_uppercase_words': 0,
-                'has_emoji': 0,
-                'word_count': 0
-            }
-            
-        features = {}
-        features['length'] = len(subject)
-        features['has_personalization'] = 1 if re.search(r'\b(your|you|du|din|ditt|dina)\b', subject.lower()) else 0
-        features['has_question'] = 1 if '?' in subject else 0
-        features['has_numbers'] = 1 if re.search(r'\d', subject) else 0
-        features['has_uppercase_words'] = 1 if re.search(r'\b[A-Z]{2,}\b', subject) else 0
-        features['has_emoji'] = 1 if re.search(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF]', subject) else 0
-        features['word_count'] = len(subject.split())
-        return features
-    
     # Apply subject features extraction
     subject_features = delivery_df['subject'].apply(extract_subject_features).apply(pd.Series)
     delivery_df = pd.concat([delivery_df, subject_features], axis=1)

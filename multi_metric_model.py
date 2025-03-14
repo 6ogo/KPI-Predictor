@@ -39,7 +39,7 @@ def train_multi_metric_models(delivery_df, customer_df):
     
     # Define features for all models
     features = processed_data.drop(['open_rate', 'click_rate', 'optout_rate', 
-                                  'InternalName', 'subject', 'contact_date'], 
+                                  'InternalName', 'subject', 'Date'], 
                                   axis=1, errors='ignore')
     
     # Define targets

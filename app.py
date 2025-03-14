@@ -17,6 +17,122 @@ from subject_recommendation import build_subject_recommendation_model
 from visualizations import create_visualizations
 from model_metadata import track_model_performance, model_needs_retraining
 
+# Define enums for the dropdown values
+SYFTE_VALUES = {
+    "AKUT": ["AKT", "AKUT"],
+    "AVSLUT": ["AVS", "AVSLUT"],
+    "AVSLUT Kund": ["AVS_K", "AVSLUT Kund"],
+    "AVSLUT Produkt": ["AVS_P", "AVSLUT Produkt"],
+    "BEHÅLLA": ["BHA", "BEHÅLLA"],
+    "BEHÅLLA Betalpåminnelse": ["BHA_P", "BEHÅLLA Betalpåminnelse"],
+    "BEHÅLLA Inför förfall": ["BHA_F", "BEHÅLLA Inför förfall"],
+    "TEST": ["TST", "TEST"],
+    "VINNA": ["VIN", "VINNA"],
+    "VINNA Provapå till riktig": ["VIN_P", "VINNA Provapå till riktig"],
+    "VÄLKOMNA": ["VLK", "VÄLKOMNA"],
+    "VÄLKOMNA Nykund": ["VLK_K", "VÄLKOMNA Nykund"],
+    "VÄLKOMNA Nyprodukt": ["VLK_P", "VÄLKOMNA Nyprodukt"],
+    "VÄLKOMNA Tillbaka": ["VLK_T", "VÄLKOMNA Tillbaka"],
+    "VÄXA": ["VXA", "VÄXA"],
+    "VÄXA Korsförsäljning": ["VXA_K", "VÄXA Korsförsäljning"],
+    "VÄXA Merförsäljning": ["VXA_M", "VÄXA Merförsäljning"],
+    "VÅRDA": ["VRD", "VÅRDA"],
+    "VÅRDA Betalsätt": ["VRD_B", "VÅRDA Betalsätt"],
+    "VÅRDA Event": ["VRD_E", "VÅRDA Event"],
+    "VÅRDA Information": ["VRD_I", "VÅRDA Information"],
+    "VÅRDA Lojalitet förmånskund": ["VRD_L", "VÅRDA Lojalitet förmånskund"],
+    "VÅRDA Nyhetsbrev": ["VRD_N", "VÅRDA Nyhetsbrev"],
+    "VÅRDA Skadeförebygg": ["VRD_S", "VÅRDA Skadeförebygg"],
+    "VÅRDA Undersökning": ["VRD_U", "VÅRDA Undersökning"],
+    "ÅTERTAG": ["ATG", "ÅTERTAG"],
+    "ÖVRIGT": ["OVR", "ÖVRIGT"]
+}
+
+DIALOG_VALUES = {
+    "BANK": ["BNK", "BANK"],
+    "BANK LFF": ["LFF", "BANK LFF"],
+    "BOENDE": ["BO", "BOENDE"],
+    "DROP-OFF": ["DRP", "DROP-OFF"],
+    "FORDON": ["FRD", "FORDON"],
+    "FÖRETAGARBREVET": ["FTB", "FÖRETAGARBREVET"],
+    "FÖRETAGSFÖRSÄKRING": ["FTG", "FÖRETAGSFÖRSÄKRING"],
+    "HÄLSA": ["H", "HÄLSA"],
+    "KUNDNIVÅ Förmånskund": ["KFB", "KUNDNIVÅ Förmånskund"],
+    "LIV": ["LIV", "LIV"],
+    "Livshändelse": ["LVS", "Livshändelse"],
+    "MÅN A1 - Barnförsäkring": ["A1", "MÅN A1 - Barnförsäkring"],
+    "MÅN A10 - Förra veckans sålda": ["A10", "MÅN A10 - Förra veckans sålda"],
+    "MÅN A3 - Återtag boendeförsäkring": ["A3", "MÅN A3 - Återtag boendeförsäkring"],
+    "MÅN A7 - Återtag bilförsäkring": ["A7", "MÅN A7 - Återtag bilförsäkring"],
+    "MÅN C2 - Boende till bil": ["C2", "MÅN C2 - Boende till bil"],
+    "MÅN C3 - Bilförsäkring förfaller hos konkurrent": ["C3", "MÅN C3 - Bilförsäkring förfaller hos konkurrent"],
+    "MÅN F10 - Fasträntekontor": ["F10", "MÅN F10 - Fasträntekontor"],
+    "MÅN L1 - Bolån till boendeförsäkringskunder": ["L1", "MÅN L1 - Bolån till boendeförsäkringskunder"],
+    "MÅN L20 - Förfall bolån": ["L20", "MÅN L20 - Förfall bolån"],
+    "MÅN L3 - Ränteförfall": ["L3", "MÅN L3 - Ränteförfall"],
+    "MÅN M1 - Märkespaket": ["M1", "MÅN M1 - Märkespaket"],
+    "MÅN S1 - Vända pengar": ["S1", "MÅN S1 - Vända pengar"],
+    "MÅN S2 - Inflytt pensionskapital": ["S2", "MÅN S2 - Inflytt pensionskapital"],
+    "NBO": ["FNO", "NBO"],
+    "OFFERT": ["OF", "OFFERT"],
+    "ONEOFF": ["ONE", "ONEOFF"],
+    "PERSON": ["P", "PERSON"],
+    "RÄDDA KVAR": ["RKR", "RÄDDA KVAR"],
+    "TESTUTSKICK": ["TST", "TESTUTSKICK"],
+    "ÅTERBÄRING": ["ATB", "ÅTERBÄRING"]
+}
+
+PRODUKT_VALUES = {
+    "AGRIA": ["A_A_", "AGRIA"],
+    "BANK": ["B_B_", "BANK"],
+    "BANK Bolån": ["B_B_B_", "BANK Bolån"],
+    "BANK Kort": ["B_K_", "BANK Kort"],
+    "BANK Spar": ["B_S_", "BANK Spar"],
+    "BANK Övriga lån": ["B_PL_", "BANK Övriga lån"],
+    "BO": ["BO_", "BO"],
+    "BO Alarm": ["BO_AL_", "BO Alarm"],
+    "BO BRF": ["BO_BR_", "BO BRF"],
+    "BO Fritid": ["BO_F_", "BO Fritid"],
+    "BO HR": ["BO_HR_", "BO HR"],
+    "BO Villa": ["BO_V_", "BO Villa"],
+    "BO VillaHem": ["BO_VH_", "BO VillaHem"],
+    "BÅT": ["BT_", "BÅT"],
+    "FOND": ["F_F_", "FOND"],
+    "FÖRETAG Företagarförsäkring": ["F_F_F_", "FÖRETAG Företagarförsäkring"],
+    "FÖRETAG Företagarförsäkring prova på": ["F_F_PR_", "FÖRETAG Företagarförsäkring prova på"],
+    "HÄLSA": ["H_H_", "HÄLSA"],
+    "HÄLSA BoKvar": ["H_B_", "HÄLSA BoKvar"],
+    "HÄLSA Diagnos": ["H_D_", "HÄLSA Diagnos"],
+    "HÄLSA Grupp företag": ["H_G_", "HÄLSA Grupp företag"],
+    "HÄLSA Olycksfall": ["H_O_", "HÄLSA Olycksfall"],
+    "HÄLSA Sjukersättning": ["H_S_", "HÄLSA Sjukersättning"],
+    "HÄLSA Sjukvårdsförsäkring": ["H_SV_", "HÄLSA Sjukvårdsförsäkring"],
+    "INGEN SPECIFIK PRODUKT": ["NA_NA_", "INGEN SPECIFIK PRODUKT"],
+    "LANTBRUK": ["LB_", "LANTBRUK"],
+    "LIV": ["L_L_", "LIV"],
+    "LIV Försäkring": ["L_F_", "LIV Försäkring"],
+    "LIV Pension": ["L_P_", "LIV Pension"],
+    "MOTOR": ["M_M_", "MOTOR"],
+    "MOTOR Personbil": ["M_PB_", "MOTOR Personbil"],
+    "MOTOR Personbil Vagnskada": ["M_PB_VG_", "MOTOR Personbil Vagnskada"],
+    "MOTOR Personbil märkes Lexus": ["M_PB_ML_", "MOTOR Personbil märkes Lexus"],
+    "MOTOR Personbil märkes Suzuki": ["M_PB_MS_", "MOTOR Personbil märkes Suzuki"],
+    "MOTOR Personbil märkes Toyota": ["M_PB_MT_", "MOTOR Personbil märkes Toyota"],
+    "MOTOR Personbil prova på": ["M_PB_PR_", "MOTOR Personbil prova på"],
+    "MOTOR Övriga": ["M_OV_", "MOTOR Övriga"],
+    "MOTOR Övriga MC": ["M_OV_MC_", "MOTOR Övriga MC"],
+    "MOTOR Övriga Skoter": ["M_OV_SKO_", "MOTOR Övriga Skoter"],
+    "MOTOR Övriga Släp": ["M_OV_SLP_", "MOTOR Övriga Släp"],
+    "PERSON": ["P_P_", "PERSON"],
+    "PERSON 60plus": ["P_60_", "PERSON 60plus"],
+    "PERSON Gravid": ["P_G_", "PERSON Gravid"],
+    "PERSON Gravid bas": ["P_G_B_", "PERSON Gravid bas"],
+    "PERSON Gravid plus": ["P_G_P_", "PERSON Gravid plus"],
+    "PERSON OB": ["P_B_", "PERSON OB"],
+    "PERSON OSB": ["P_OSB_", "PERSON OSB"],
+    "PERSON OSV": ["P_OSV_", "PERSON OSV"]
+}
+
 # Set page config
 st.set_page_config(
     page_title="Email Campaign KPI Predictor",
@@ -30,21 +146,49 @@ st.set_page_config(
 def load_data():
     """Load and preprocess the campaign data"""
     try:
-        customer_df = pd.read_csv('customer_data.csv')
-        delivery_df = pd.read_csv('delivery_data.csv')
+        customer_df = pd.read_csv('./data/customer_data.csv', delimiter=';')
+        delivery_df = pd.read_csv('./data/delivery_data.csv', delimiter=';')
         
         # Basic preprocessing
-        customer_df = customer_df.drop_duplicates(subset=['InternalName', 'Primary k isWoman OptOut'])
+        customer_df = customer_df.drop_duplicates(subset=['InternalName', 'Primary key'])
+        
+        # Handling column name case sensitivity by standardizing column names
+        # Map upper/lowercase variations to standard form
+        column_mapping = {
+            'OptOut': 'optout',
+            'Optout': 'optout',
+            'OPTOUT': 'optout',
+            'Opens': 'opens',
+            'OPENS': 'opens',
+            'Open': 'open',
+            'OPEN': 'open',
+            'Clicks': 'clicks',
+            'CLICKS': 'clicks',
+            'Click': 'click',
+            'CLICK': 'click',
+            'Sendouts': 'sendouts',
+            'SENDOUTS': 'sendouts',
+            'Utskick': 'sendouts',
+            'UTSKICK': 'sendouts'
+        }
+        
+        # Apply column name standardization to both dataframes
+        customer_df.columns = [column_mapping.get(col, col) for col in customer_df.columns]
+        delivery_df.columns = [column_mapping.get(col, col) for col in delivery_df.columns]
         
         # Calculate rates if they don't exist yet
         if 'open_rate' not in delivery_df.columns:
-            delivery_df['open_rate'] = (delivery_df['Opens'] / delivery_df['Utskick']) * 100
+            # Check if we have the necessary columns for calculation
+            if 'opens' in delivery_df.columns and 'sendouts' in delivery_df.columns:
+                delivery_df['open_rate'] = (delivery_df['opens'] / delivery_df['sendouts']) * 100
         
-        if 'click_rate' not in delivery_df.columns and 'Opens' in delivery_df.columns:
-            delivery_df['click_rate'] = (delivery_df['Clicks'] / delivery_df['Opens']) * 100
+        if 'click_rate' not in delivery_df.columns:
+            if 'clicks' in delivery_df.columns and 'opens' in delivery_df.columns:
+                delivery_df['click_rate'] = (delivery_df['clicks'] / delivery_df['opens']) * 100
             
-        if 'optout_rate' not in delivery_df.columns and 'Opens' in delivery_df.columns:
-            delivery_df['optout_rate'] = (delivery_df['Optout'] / delivery_df['Opens']) * 100
+        if 'optout_rate' not in delivery_df.columns:
+            if 'optout' in delivery_df.columns and 'opens' in delivery_df.columns:
+                delivery_df['optout_rate'] = (delivery_df['optout'] / delivery_df['opens']) * 100
         
         # Handle infinities and NaNs
         delivery_df.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -56,6 +200,9 @@ def load_data():
         return customer_df, delivery_df
     except Exception as e:
         st.error(f"Error loading data: {e}")
+        # Print more detailed error information
+        import traceback
+        st.error(traceback.format_exc())
         return None, None
 
 # --- Model Training, Validation and Caching ---
@@ -198,16 +345,16 @@ def validate_models(model_results, delivery_df, customer_df):
             # Create basic input data
             input_data = pd.DataFrame({
                 'county': [row.get('county', 'Stockholm')],
-                'dialog': [row.get('dialog', 'Monthly')],
-                'syfte': [row.get('syfte', 'Information')],
-                'product': [row.get('product', 'Product A')],
+                'dialog': [row.get('Dialog', 'Monthly')],
+                'syfte': [row.get('Syfte', 'Information')],
+                'product': [row.get('Produkt', 'Product A')],
                 'bolag': [row.get('bolag', 'Main Company')],
                 'avg_age': [row.get('avg_age', 35)],
                 'pct_women': [row.get('pct_women', 50)],
                 'day_of_week': [row.get('day_of_week', 0)],
                 'hour_of_day': [row.get('hour_of_day', 9)],
                 'is_weekend': [row.get('is_weekend', 0)],
-                'subject': [row.get('subject', 'Newsletter')]
+                'subject': [row.get('Subject', 'Newsletter')]
             })
             
             # Add subject features
@@ -256,6 +403,7 @@ def validate_models(model_results, delivery_df, customer_df):
             'message': f"Error validating models: {str(e)}"
         }
 
+# Rest of your code remains the same...
 
 def generate_model_improvement_recommendations(delivery_df, errors):
     """
@@ -320,54 +468,6 @@ def generate_model_improvement_recommendations(delivery_df, errors):
     
     return recommendations
 
-def track_prediction_performance(formatted_predictions, actual_metrics=None):
-    """
-    Track prediction performance for a campaign
-    
-    Parameters:
-    - formatted_predictions: The predictions made for the campaign
-    - actual_metrics: Optional actual metrics if available
-    """
-    import os
-    import pandas as pd
-    import datetime
-    
-    # Create a predictions log file path
-    predictions_log_path = "saved_models/prediction_log.csv"
-    
-    # Prepare prediction data
-    prediction_data = {
-        'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'pred_open_rate': formatted_predictions['current']['open_rate'],
-        'pred_click_rate': formatted_predictions['current']['click_rate'],
-        'pred_optout_rate': formatted_predictions['current']['optout_rate']
-    }
-    
-    # Add actual metrics if available
-    if actual_metrics:
-        prediction_data.update({
-            'actual_open_rate': actual_metrics.get('open_rate'),
-            'actual_click_rate': actual_metrics.get('click_rate'),
-            'actual_optout_rate': actual_metrics.get('optout_rate'),
-            'open_rate_error': actual_metrics.get('open_rate', 0) - formatted_predictions['current']['open_rate'],
-            'click_rate_error': actual_metrics.get('click_rate', 0) - formatted_predictions['current']['click_rate'],
-            'optout_rate_error': actual_metrics.get('optout_rate', 0) - formatted_predictions['current']['optout_rate']
-        })
-    
-    # Convert to DataFrame
-    pred_df = pd.DataFrame([prediction_data])
-    
-    # Save to CSV (append if exists)
-    if os.path.exists(predictions_log_path):
-        existing_log = pd.read_csv(predictions_log_path)
-        updated_log = pd.concat([existing_log, pred_df], ignore_index=True)
-        updated_log.to_csv(predictions_log_path, index=False)
-    else:
-        os.makedirs(os.path.dirname(predictions_log_path), exist_ok=True)
-        pred_df.to_csv(predictions_log_path, index=False)
-    
-    return prediction_data
-
 # --- Main App ---
 def main():
     # Header & Intro
@@ -411,28 +511,27 @@ def main():
             st.subheader("Campaign Settings")
             
             # Get values from models for dropdowns
-            cat_values = model_results['categorical_values']
+            cat_values = model_results.get('categorical_values', {})
             
             # Input fields - use available values from the data
+            # Use the enum values for dropdowns
             selected_county = st.selectbox(
                 "Target County", 
                 options=cat_values.get('county', ["Stockholm", "Göteborg och Bohuslän", "Skåne"])
             )
             
-            selected_dialog = st.selectbox(
-                "Dialog", 
-                options=cat_values.get('dialog', ["Welcome", "Monthly", "Promo"])
-            )
+            # Use the defined enum dictionaries for dropdowns
+            dialog_options = list(DIALOG_VALUES.keys())
+            selected_dialog = st.selectbox("Dialog", options=dialog_options)
+            dialog_code = DIALOG_VALUES[selected_dialog][0]  # Get the code for the selected dialog
             
-            selected_syfte = st.selectbox(
-                "Campaign Purpose", 
-                options=cat_values.get('syfte', ["Information", "Sales", "Service"])
-            )
+            syfte_options = list(SYFTE_VALUES.keys())
+            selected_syfte = st.selectbox("Campaign Purpose", options=syfte_options)
+            syfte_code = SYFTE_VALUES[selected_syfte][0]  # Get the code for the selected syfte
             
-            selected_product = st.selectbox(
-                "Product", 
-                options=cat_values.get('product', ["Product A", "Product B", "Service X"])
-            )
+            produkt_options = list(PRODUKT_VALUES.keys())
+            selected_product = st.selectbox("Product", options=produkt_options)
+            product_code = PRODUKT_VALUES[selected_product][0]  # Get the code for the selected product
             
             selected_bolag = st.selectbox(
                 "Company", 
@@ -465,9 +564,9 @@ def main():
         # Create input data for prediction
         input_data = pd.DataFrame({
             'county': [selected_county],
-            'dialog': [selected_dialog],
-            'syfte': [selected_syfte],
-            'product': [selected_product],
+            'dialog': [dialog_code],  # Use the code, not the full name
+            'syfte': [syfte_code],    # Use the code, not the full name
+            'product': [product_code], # Use the code, not the full name
             'bolag': [selected_bolag],
             'avg_age': [avg_age],
             'pct_women': [pct_women],
@@ -582,9 +681,9 @@ def main():
         st.header("Campaign Performance Insights")
         
         # Create historical performance charts
-        if 'contact_date' in delivery_df.columns:
-            delivery_df['contact_date'] = pd.to_datetime(delivery_df['contact_date'])
-            delivery_df['month'] = delivery_df['contact_date'].dt.strftime('%Y-%m')
+        if 'Date' in delivery_df.columns:
+            delivery_df['Date'] = pd.to_datetime(delivery_df['Date'])
+            delivery_df['month'] = delivery_df['Date'].dt.strftime('%Y-%m')
             
             # Create tabs for different metrics and analyses
             metric_tab1, metric_tab2, metric_tab3, bolag_tab = st.tabs(["Open Rate", "Click Rate", "Optout Rate", "Company Analysis"])
@@ -593,7 +692,7 @@ def main():
                 # Monthly open rate performance
                 monthly_opens = delivery_df.groupby('month').agg(
                     avg_open_rate=('open_rate', 'mean'),
-                    total_sends=('Utskick', 'sum'),
+                    total_sends=('Sendouts', 'sum'),
                     total_opens=('Opens', 'sum')
                 ).reset_index()
                 
@@ -676,7 +775,7 @@ def main():
                 monthly_optouts = delivery_df.groupby('month').agg(
                     avg_optout_rate=('optout_rate', 'mean'),
                     total_opens=('Opens', 'sum'),
-                    total_optouts=('Optout', 'sum')
+                    total_optouts=('OptOut', 'sum')
                 ).reset_index()
                 
                 # Plot monthly optout rates
