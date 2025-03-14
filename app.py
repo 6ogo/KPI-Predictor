@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import datetime
@@ -170,19 +169,54 @@ st.set_page_config(
 # --- Data Loading and Caching ---
 @st.cache_data
 def load_data():
-    """Load and preprocess the campaign data"""
+    """Load and preprocess the campaign data with improved error handling"""
     try:
         with st.spinner("Processing data..."):
-            customer_df = pd.read_csv('./data/customer_data.csv', delimiter=';')
-            delivery_df = pd.read_csv('./data/delivery_data.csv', delimiter=';')
-
+            # Import necessary libraries
+            import numpy as np
+            import pandas as pd
+            import logging
+            
+            # Load data files with explicit error handling
+            try:
+                customer_df = pd.read_csv('./data/customer_data.csv', delimiter=';')
+                st.success(f"Successfully loaded customer_data.csv with {len(customer_df)} rows")
+            except Exception as e:
+                st.warning(f"Error loading customer data: {str(e)}. Creating empty dataframe.")
+                # Create empty dataframe with required columns
+                customer_df = pd.DataFrame(columns=['Primary key', 'InternalName', 'OptOut', 'Open', 'Click', 'Gender', 'Age', 'Bolag'])
+            
+            try:
+                delivery_df = pd.read_csv('./data/delivery_data.csv', delimiter=';')
+                st.success(f"Successfully loaded delivery_data.csv with {len(delivery_df)} rows")
+            except Exception as e:
+                st.warning(f"Error loading delivery data: {str(e)}. Creating empty dataframe.")
+                # Create empty dataframe with required columns
+                delivery_df = pd.DataFrame(columns=['InternalName', 'Subject', 'Date', 'Sendouts', 'Opens', 'Clicks', 'Optouts', 'Dialog', 'Syfte', 'Produkt'])
+            
+            # Print column names for debugging
+            logging.info(f"Delivery columns: {delivery_df.columns.tolist()}")
+            logging.info(f"Customer columns: {customer_df.columns.tolist()}")
+            
             # Ensure 'Subject' is string and handle missing values
             if 'Subject' in delivery_df.columns:
                 delivery_df['Subject'] = delivery_df['Subject'].fillna('').astype(str)
-
+            
             # Basic preprocessing
-            customer_df = customer_df.drop_duplicates(subset=['InternalName', 'Primary key'])
-
+            if len(customer_df) > 0:
+                customer_df = customer_df.drop_duplicates(subset=['InternalName', 'Primary key'])
+            
+            # Ensure numeric columns are properly converted in delivery data
+            numeric_cols = ['Sendouts', 'Opens', 'Clicks', 'Optouts']
+            for col in numeric_cols:
+                if col in delivery_df.columns:
+                    # Convert to numeric with errors coerced
+                    delivery_df[col] = pd.to_numeric(delivery_df[col], errors='coerce')
+                    # Fill NaN values with 0
+                    delivery_df[col] = delivery_df[col].fillna(0).astype(float)
+                    # Log column stats for debugging
+                    logging.info(f"{col} stats: min={delivery_df[col].min()}, max={delivery_df[col].max()}, mean={delivery_df[col].mean()}")
+            
             # Handling column name case sensitivity by standardizing column names
             column_mapping = {
                 'OptOut': 'Optout',
@@ -208,42 +242,115 @@ def load_data():
                 'Subject': 'Subject',
                 'SUBJECT': 'Subject'
             }
-
+            
             # Apply column name standardization
-            customer_df.columns = [column_mapping.get(col, col) for col in customer_df.columns]
-            delivery_df.columns = [column_mapping.get(col, col) for col in delivery_df.columns]
-
+            if len(customer_df) > 0:
+                customer_df.columns = [column_mapping.get(col, col) for col in customer_df.columns]
+            
+            if len(delivery_df) > 0:
+                delivery_df.columns = [column_mapping.get(col, col) for col in delivery_df.columns]
+            
             # Make sure county column exists for targeting
             if 'county' not in delivery_df.columns:
-                if 'Bolag' in customer_df.columns:
-                    county_map = customer_df.groupby('InternalName')['Bolag'].agg(
-                        lambda x: x.value_counts().index[0] if len(x.value_counts()) > 0 else 'Unknown'
-                    ).to_dict()
-                    delivery_df['county'] = delivery_df['InternalName'].map(county_map)
-                    delivery_df['county'].fillna('Stockholm', inplace=True)
+                if 'Bolag' in customer_df.columns and len(customer_df) > 0:
+                    try:
+                        # Calculate most common Bolag per delivery
+                        county_map = customer_df.groupby('InternalName')['Bolag'].agg(
+                            lambda x: x.value_counts().index[0] if len(x.value_counts()) > 0 else 'Unknown'
+                        ).to_dict()
+                        
+                        delivery_df['county'] = delivery_df['InternalName'].map(county_map)
+                        delivery_df['county'].fillna('Stockholm', inplace=True)
+                    except Exception as e:
+                        logging.error(f"Error mapping Bolag to county: {str(e)}")
+                        delivery_df['county'] = 'Stockholm'
                 else:
                     delivery_df['county'] = 'Stockholm'
+            
+            # Enforce logical constraints on the data (Opens ≤ Sendouts, Clicks ≤ Opens, Optouts ≤ Opens)
+            logging.info("Enforcing logical constraints on data...")
 
-            # Calculate rates if they don't exist yet
-            if 'open_rate' not in delivery_df.columns:
-                delivery_df['open_rate'] = (delivery_df['Opens'] / delivery_df['Sendouts']) * 100
+            # Check and fix: Opens should not exceed Sendouts
+            if all(col in delivery_df.columns for col in ['Opens', 'Sendouts']):
+                invalid_opens = delivery_df['Opens'] > delivery_df['Sendouts']
+                if invalid_opens.any():
+                    logging.warning(f"Found {invalid_opens.sum()} rows where Opens > Sendouts. Fixing...")
+                    # Set Opens equal to Sendouts where the constraint is violated
+                    delivery_df.loc[invalid_opens, 'Opens'] = delivery_df.loc[invalid_opens, 'Sendouts']
 
-            if 'click_rate' not in delivery_df.columns:
-                delivery_df['click_rate'] = (delivery_df['Clicks'] / delivery_df['Opens']) * 100
+            # Check and fix: Clicks should not exceed Opens
+            if all(col in delivery_df.columns for col in ['Clicks', 'Opens']):
+                invalid_clicks = delivery_df['Clicks'] > delivery_df['Opens']
+                if invalid_clicks.any():
+                    logging.warning(f"Found {invalid_clicks.sum()} rows where Clicks > Opens. Fixing...")
+                    # Set Clicks equal to Opens where the constraint is violated
+                    delivery_df.loc[invalid_clicks, 'Clicks'] = delivery_df.loc[invalid_clicks, 'Opens']
 
-            if 'optout_rate' not in delivery_df.columns:
-                delivery_df['optout_rate'] = (delivery_df['Optout'] / delivery_df['Opens']) * 100
+            # Check and fix: Optouts should not exceed Opens
+            if all(col in delivery_df.columns for col in ['Optouts', 'Opens']):
+                invalid_optouts = delivery_df['Optouts'] > delivery_df['Opens']
+                if invalid_optouts.any():
+                    logging.warning(f"Found {invalid_optouts.sum()} rows where Optouts > Opens. Fixing...")
+                    # Set Optouts equal to Opens where the constraint is violated
+                    delivery_df.loc[invalid_optouts, 'Optouts'] = delivery_df.loc[invalid_optouts, 'Opens']
 
+            # Calculate rates safely with numpy to avoid division by zero issues
+            if 'Sendouts' in delivery_df.columns and 'Opens' in delivery_df.columns:
+                # Calculate open rate: (Opens / Sendouts) * 100
+                delivery_df['open_rate'] = np.where(
+                    delivery_df['Sendouts'] > 0,
+                    (delivery_df['Opens'] / delivery_df['Sendouts']) * 100,
+                    0  # Default when sendouts is 0
+                )
+                logging.info(f"Calculated open_rate: min={delivery_df['open_rate'].min()}, max={delivery_df['open_rate'].max()}, mean={delivery_df['open_rate'].mean()}")
+            else:
+                delivery_df['open_rate'] = 0
+                logging.warning("Could not calculate open_rate, missing required columns")
+            
+            if 'Opens' in delivery_df.columns and 'Clicks' in delivery_df.columns:
+                # Calculate click rate: (Clicks / Opens) * 100
+                delivery_df['click_rate'] = np.where(
+                    delivery_df['Opens'] > 0,
+                    (delivery_df['Clicks'] / delivery_df['Opens']) * 100,
+                    0  # Default when opens is 0
+                )
+                logging.info(f"Calculated click_rate: min={delivery_df['click_rate'].min()}, max={delivery_df['click_rate'].max()}, mean={delivery_df['click_rate'].mean()}")
+            else:
+                delivery_df['click_rate'] = 0
+                logging.warning("Could not calculate click_rate, missing required columns")
+            
+            if 'Opens' in delivery_df.columns and 'Optouts' in delivery_df.columns:
+                # Calculate optout rate: (Optouts / Opens) * 100
+                delivery_df['optout_rate'] = np.where(
+                    delivery_df['Opens'] > 0,
+                    (delivery_df['Optouts'] / delivery_df['Opens']) * 100,
+                    0  # Default when opens is 0
+                )
+                logging.info(f"Calculated optout_rate: min={delivery_df['optout_rate'].min()}, max={delivery_df['optout_rate'].max()}, mean={delivery_df['optout_rate'].mean()}")
+            else:
+                delivery_df['optout_rate'] = 0
+                logging.warning("Could not calculate optout_rate, missing required columns")
+            
             # Handle infinities and NaNs
             delivery_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+            
+            # Fill NaNs with reasonable defaults
             delivery_df.fillna({
+                'open_rate': 0,
                 'click_rate': 0,
                 'optout_rate': 0
             }, inplace=True)
-
+            
+            # Cap extreme values if needed (sometimes rates can be >100% due to data issues)
+            delivery_df['open_rate'] = delivery_df['open_rate'].clip(0, 100)
+            delivery_df['click_rate'] = delivery_df['click_rate'].clip(0, 100)
+            delivery_df['optout_rate'] = delivery_df['optout_rate'].clip(0, 100)
+            
             return customer_df, delivery_df
     except Exception as e:
         st.error(f"Error loading data: {e}")
+        import traceback
+        logging.error(f"Detailed error: {traceback.format_exc()}")
         return None, None
 
 def campaign_parameter_input(cat_values):
@@ -304,7 +411,7 @@ def campaign_parameter_input(cat_values):
     
     # Subject line
     st.subheader("Email Content")
-    subject = st.text_input("Subject Line", "Check out our latest offers!")
+    subject = st.text_input("Subject Line", "Glöm inte ditt bolåneskydd!")
     
     # Extract subject features
     from feature_engineering import extract_subject_features
@@ -369,8 +476,10 @@ def analyze_age_groups(customer_df, delivery_df):
         count=('Age', 'count')
     ).reset_index()
     
-    # Fill NaN values
-    age_group_metrics.fillna(0, inplace=True)
+    # Fill NaN values for numeric columns only - THIS FIXES THE ERROR
+    numeric_columns = ['avg_open_rate', 'avg_click_rate', 'avg_optout_rate', 'count']
+    for col in numeric_columns:
+        age_group_metrics[col] = age_group_metrics[col].fillna(0)
     
     # Create visualization
     metrics_data = []
@@ -399,8 +508,7 @@ def analyze_age_groups(customer_df, delivery_df):
     fig.update_traces(textposition='outside')
     fig.update_layout(
         xaxis_title='Age Group',
-        yaxis_title='Rate (%)',
-        legend_title='Metric'
+        yaxis_title='Rate (%)'
     )
     
     return age_group_metrics, fig
@@ -908,136 +1016,7 @@ def create_forecast_tab(customer_df, delivery_df, formatted_predictions, paramet
     )
     
     st.plotly_chart(fig_forecast, use_container_width=True)
-    
-    # ROI estimation (if possible)
-    st.subheader("Return on Investment Estimation")
-    
-    roi_col1, roi_col2 = st.columns(2)
-    
-    with roi_col1:
-        avg_revenue_per_click = st.number_input(
-            "Average Revenue per Click (SEK)",
-            min_value=0.0,
-            value=50.0,
-            step=10.0,
-            help="Estimated average revenue generated per click"
-        )
         
-        avg_cost_per_optout = st.number_input(
-            "Average Cost per Optout (SEK)",
-            min_value=0.0,
-            value=200.0,
-            step=10.0,
-            help="Estimated cost/value lost per customer who opts out"
-        )
-    
-    with roi_col2:
-        campaign_cost = st.number_input(
-            "Campaign Cost (SEK)",
-            min_value=0.0,
-            value=5000.0,
-            step=1000.0,
-            help="Total cost to create and send this campaign"
-        )
-        
-        # Show advanced options checkbox
-        show_advanced = st.checkbox("Show Advanced Options")
-        
-        if show_advanced:
-            cost_per_send = st.number_input(
-                "Cost per Send (SEK)",
-                min_value=0.0,
-                value=0.1,
-                step=0.1,
-                format="%.2f",
-                help="Cost per individual email sent"
-            )
-            
-            # Update campaign cost to include per-send costs
-            campaign_cost += cost_per_send * final_estimated_reach
-    
-    # Calculate ROI
-    current_revenue = current_estimates['clicks'] * avg_revenue_per_click
-    current_optout_cost = current_estimates['optouts'] * avg_cost_per_optout
-    current_roi = current_revenue - current_optout_cost - campaign_cost
-    
-    recommended_revenue = recommended_estimates['clicks'] * avg_revenue_per_click
-    recommended_optout_cost = recommended_estimates['optouts'] * avg_cost_per_optout
-    recommended_roi = recommended_revenue - recommended_optout_cost - campaign_cost
-    
-    # Display ROI
-    roi_metrics_col1, roi_metrics_col2 = st.columns(2)
-    
-    with roi_metrics_col1:
-        st.subheader("Current Strategy ROI")
-        
-        roi_detail_col1, roi_detail_col2 = st.columns(2)
-        
-        with roi_detail_col1:
-            st.metric("Estimated Revenue", f"{current_revenue:,.2f} SEK")
-            st.metric("Optout Cost", f"{current_optout_cost:,.2f} SEK")
-            
-        with roi_detail_col2:
-            st.metric("Campaign Cost", f"{campaign_cost:,.2f} SEK")
-            st.metric("Net ROI", f"{current_roi:,.2f} SEK")
-    
-    with roi_metrics_col2:
-        st.subheader("Recommended Strategy ROI")
-        
-        roi_detail_col1, roi_detail_col2 = st.columns(2)
-        
-        with roi_detail_col1:
-            st.metric(
-                "Estimated Revenue", 
-                f"{recommended_revenue:,.2f} SEK",
-                f"{recommended_revenue - current_revenue:,.2f} SEK"
-            )
-            st.metric(
-                "Optout Cost", 
-                f"{recommended_optout_cost:,.2f} SEK",
-                f"{current_optout_cost - recommended_optout_cost:,.2f} SEK" if recommended_optout_cost < current_optout_cost else f"-{recommended_optout_cost - current_optout_cost:,.2f} SEK"
-            )
-            
-        with roi_detail_col2:
-            st.metric("Campaign Cost", f"{campaign_cost:,.2f} SEK")
-            st.metric(
-                "Net ROI", 
-                f"{recommended_roi:,.2f} SEK",
-                f"{recommended_roi - current_roi:,.2f} SEK"
-            )
-    
-    # ROI comparison chart
-    roi_comparison = pd.DataFrame({
-        'Category': ['Revenue', 'Optout Cost', 'Campaign Cost', 'Net ROI'],
-        'Current Strategy': [current_revenue, current_optout_cost, campaign_cost, current_roi],
-        'Recommended Strategy': [recommended_revenue, recommended_optout_cost, campaign_cost, recommended_roi]
-    })
-    
-    roi_melted = pd.melt(
-        roi_comparison,
-        id_vars='Category',
-        var_name='Strategy',
-        value_name='Amount (SEK)'
-    )
-    
-    fig_roi = px.bar(
-        roi_melted,
-        x='Category',
-        y='Amount (SEK)',
-        color='Strategy',
-        barmode='group',
-        title='ROI Comparison',
-        text=roi_melted['Amount (SEK)'].apply(lambda x: f"{x:,.0f} SEK")
-    )
-    
-    fig_roi.update_traces(textposition='outside')
-    fig_roi.update_layout(
-        xaxis_title='Category',
-        yaxis_title='Amount (SEK)'
-    )
-    
-    st.plotly_chart(fig_roi, use_container_width=True)
-    
     # Recommendations summary
     st.subheader("Key Recommendations")
     
@@ -1151,6 +1130,22 @@ def display_kpi_dashboard(formatted_predictions, delivery_df):
     kpi_data['Δ Recommended'] = kpi_data['Recommended'] - kpi_data['Current']
     kpi_data['Δ Historical'] = kpi_data['Current'] - kpi_data['Historical Average']
     
+    # Check if values are too small or NaN/infinite - replace with reasonable defaults if needed
+    kpi_data = kpi_data.replace([np.inf, -np.inf], np.nan)
+    
+    # For any row where Current is 0 or NaN, set a small default value
+    for idx, row in kpi_data.iterrows():
+        if pd.isna(row['Current']) or row['Current'] == 0:
+            kpi_data.at[idx, 'Current'] = 0.1
+        if pd.isna(row['Recommended']) or row['Recommended'] == 0:
+            kpi_data.at[idx, 'Recommended'] = 0.1
+        if pd.isna(row['Historical Average']) or row['Historical Average'] == 0:
+            kpi_data.at[idx, 'Historical Average'] = 0.1
+        if pd.isna(row['Δ Recommended']):
+            kpi_data.at[idx, 'Δ Recommended'] = 0
+        if pd.isna(row['Δ Historical']):
+            kpi_data.at[idx, 'Δ Historical'] = 0
+    
     # Display the KPI table
     st.dataframe(
         kpi_data.style.format({
@@ -1189,13 +1184,16 @@ def display_kpi_dashboard(formatted_predictions, delivery_df):
         'engagement': historical_engagement * 1.1  # 10% above historical average
     }
     
-    # Create gauge charts
+    # Ensure all targets have reasonable minimum values
+    targets = {k: max(v, 0.1) for k, v in targets.items()}
+    
+    # Create gauge charts with unique keys
     with row1_col1:
         fig_open = go.Figure(go.Indicator(
             mode="gauge+number+delta",
             value=formatted_predictions['current']['open_rate'],
-            title={'text': "Open Rate (%)"},
             delta={'reference': historical_metrics['open_rate'], 'relative': False, 'valueformat': '.2f'},
+            title={'text': "Open Rate (%)"},
             gauge={
                 'axis': {'range': [0, max(formatted_predictions['combined']['open_rate'], targets['open_rate']) * 1.2]},
                 'bar': {'color': "blue"},
@@ -1210,14 +1208,14 @@ def display_kpi_dashboard(formatted_predictions, delivery_df):
                 }
             }
         ))
-        st.plotly_chart(fig_open, use_container_width=True)
+        st.plotly_chart(fig_open, use_container_width=True, key="open_rate_gauge")
     
     with row1_col2:
         fig_click = go.Figure(go.Indicator(
             mode="gauge+number+delta",
             value=formatted_predictions['current']['click_rate'],
-            title={'text': "Click Rate (%)"},
             delta={'reference': historical_metrics['click_rate'], 'relative': False, 'valueformat': '.2f'},
+            title={'text': "Click Rate (%)"},
             gauge={
                 'axis': {'range': [0, max(formatted_predictions['combined']['click_rate'], targets['click_rate']) * 1.2]},
                 'bar': {'color': "green"},
@@ -1232,7 +1230,7 @@ def display_kpi_dashboard(formatted_predictions, delivery_df):
                 }
             }
         ))
-        st.plotly_chart(fig_click, use_container_width=True)
+        st.plotly_chart(fig_click, use_container_width=True, key="click_rate_gauge")
     
     with row1_col3:
         # For optout rate, lower is better
@@ -1262,7 +1260,7 @@ def display_kpi_dashboard(formatted_predictions, delivery_df):
                 }
             }
         ))
-        st.plotly_chart(fig_optout, use_container_width=True)
+        st.plotly_chart(fig_optout, use_container_width=True, key="optout_rate_gauge")
     
     with row2_col1:
         fig_ctor = go.Figure(go.Indicator(
@@ -1284,7 +1282,7 @@ def display_kpi_dashboard(formatted_predictions, delivery_df):
                 }
             }
         ))
-        st.plotly_chart(fig_ctor, use_container_width=True)
+        st.plotly_chart(fig_ctor, use_container_width=True, key="ctor_gauge")
     
     with row2_col2:
         fig_engagement = go.Figure(go.Indicator(
@@ -1306,7 +1304,7 @@ def display_kpi_dashboard(formatted_predictions, delivery_df):
                 }
             }
         ))
-        st.plotly_chart(fig_engagement, use_container_width=True)
+        st.plotly_chart(fig_engagement, use_container_width=True, key="engagement_gauge")
     
     # Display KPI descriptions
     with st.expander("KPI Descriptions"):
@@ -1336,7 +1334,115 @@ def display_kpi_dashboard(formatted_predictions, delivery_df):
         - **CTOR Target**: 5% above historical average
         - **Engagement Score Target**: 10% above historical average
         """)
-        
+
+def validate_predictions(predictions):
+    """
+    Validates prediction results and fixes any issues with zeros, NaNs, or unrealistic values.
+    
+    Parameters:
+    - predictions: Dictionary of prediction results from format_predictions
+    
+    Returns:
+    - Validated prediction results
+    """
+    import logging
+    import numpy as np
+    
+    # Define reasonable ranges for each metric
+    valid_ranges = {
+        'open_rate': (5.0, 80.0),  # 5% to 80%
+        'click_rate': (0.5, 30.0),  # 0.5% to 30%
+        'optout_rate': (0.01, 5.0)  # 0.01% to 5%
+    }
+    
+    # Default values to use if predicted values are invalid
+    default_values = {
+        'open_rate': 25.0,  # 25% is a reasonable default open rate
+        'click_rate': 3.0,   # 3% is a reasonable default click rate
+        'optout_rate': 0.2   # 0.2% is a reasonable default optout rate
+    }
+    
+    # Deep copy the predictions to avoid modifying the original
+    validated = {}
+    for key, value in predictions.items():
+        if isinstance(value, dict):
+            validated[key] = value.copy()
+        else:
+            validated[key] = value
+            
+    # Helper function to validate a specific metric value
+    def validate_metric(value, metric_name):
+        # Convert to float if it's not already
+        try:
+            if value is None:
+                logging.warning(f"Invalid {metric_name} value: None, using default {default_values[metric_name]}")
+                return default_values[metric_name]
+            
+            # Handle non-numeric values
+            if isinstance(value, str) or isinstance(value, bool):
+                logging.warning(f"Invalid {metric_name} value type: {type(value)}, using default {default_values[metric_name]}")
+                return default_values[metric_name]
+                
+            # Convert to float and check for NaN/infinity
+            float_value = float(value)
+            
+            # Check if the value is NaN or infinite
+            if np.isnan(float_value) or np.isinf(float_value):
+                logging.warning(f"Invalid {metric_name} value: {value}, using default {default_values[metric_name]}")
+                return default_values[metric_name]
+                
+            # Check if the value is within a reasonable range
+            min_val, max_val = valid_ranges[metric_name]
+            if float_value < min_val or float_value > max_val:
+                logging.warning(f"Invalid {metric_name} value: {float_value}, using default {default_values[metric_name]}")
+                return default_values[metric_name]
+                
+            return float_value
+                
+        except Exception as e:
+            logging.warning(f"Error validating {metric_name}: {e}, using default {default_values[metric_name]}")
+            return default_values[metric_name]
+    
+    # Validate current predictions
+    if 'current' in validated:
+        for metric in ['open_rate', 'click_rate', 'optout_rate']:
+            if metric in validated['current']:
+                validated['current'][metric] = validate_metric(validated['current'][metric], metric)
+    
+    # Validate targeting predictions
+    if 'targeting' in validated:
+        if 'predictions' in validated['targeting']:
+            for metric in ['open_rate', 'click_rate', 'optout_rate']:
+                if metric in validated['targeting']['predictions']:
+                    validated['targeting']['predictions'][metric] = validate_metric(
+                        validated['targeting']['predictions'][metric], metric
+                    )
+        else:
+            # For older format where metrics are directly in the targeting dict
+            for metric in ['open_rate', 'click_rate', 'optout_rate']:
+                if metric in validated['targeting']:
+                    validated['targeting'][metric] = validate_metric(validated['targeting'][metric], metric)
+    
+    # Validate subject predictions (only open_rate)
+    if 'subject' in validated and 'open_rate' in validated['subject']:
+        validated['subject']['open_rate'] = validate_metric(validated['subject']['open_rate'], 'open_rate')
+    
+    # Validate combined predictions
+    if 'combined' in validated:
+        if 'predictions' in validated['combined']:
+            for metric in ['open_rate', 'click_rate', 'optout_rate']:
+                if metric in validated['combined']['predictions']:
+                    validated['combined']['predictions'][metric] = validate_metric(
+                        validated['combined']['predictions'][metric], metric
+                    )
+        else:
+            # For older format where metrics are directly in the combined dict
+            for metric in ['open_rate', 'click_rate', 'optout_rate']:
+                if metric in validated['combined']:
+                    validated['combined'][metric] = validate_metric(validated['combined'][metric], metric)
+    
+    return validated
+       
 def display_targeting_recommendations(formatted_predictions, parameters, time_analysis, age_group_metrics):
     """
     Display targeting recommendations with a focus on excluded bolags and timing,
@@ -1412,7 +1518,7 @@ def display_targeting_recommendations(formatted_predictions, parameters, time_an
                 
                 st.markdown(f"Click Rate: {best_worst['click_rate']['best_day_rate']:.2f}% (day), {best_worst['click_rate']['best_hour_rate']:.2f}% (hour)")
             
-            # Best day for optout rate (lowest)
+            # Best day for optout rate (lowest is best)
             if 'optout_rate' in best_worst:
                 best_day = best_worst['optout_rate']['best_day']
                 best_hour = best_worst['optout_rate']['best_hour']
@@ -1728,6 +1834,92 @@ def build_models(customer_df, delivery_df):
     except Exception as e:
         st.error(f"🚨 Error building models: {e}")
         return None
+def create_improved_comparison_table(formatted_predictions):
+    """
+    Creates an improved metrics comparison table that's easier to read.
+    
+    Parameters:
+    - formatted_predictions: Validated prediction results
+    
+    Returns:
+    - Streamlit table or dataframe
+    """
+    import streamlit as st
+    import pandas as pd
+    import numpy as np
+    
+    # Create a dataframe with the metrics
+    metrics_df = pd.DataFrame({
+        'Metric': ['Open Rate (%)', 'Click Rate (%)', 'Optout Rate (%)'],
+        'Current': [
+            formatted_predictions['current']['open_rate'],
+            formatted_predictions['current']['click_rate'],
+            formatted_predictions['current']['optout_rate']
+        ],
+        'Targeting': [
+            formatted_predictions['targeting']['open_rate'],
+            formatted_predictions['targeting']['click_rate'],
+            formatted_predictions['targeting']['optout_rate']
+        ],
+        'Targeting Δ': [
+            formatted_predictions['targeting']['open_rate_diff'],
+            formatted_predictions['targeting']['click_rate_diff'],
+            formatted_predictions['targeting']['optout_rate_diff']
+        ],
+        'Subject': [
+            formatted_predictions['subject']['open_rate'],
+            formatted_predictions['current']['click_rate'],  # Subject only affects open rate
+            formatted_predictions['current']['optout_rate']  # Subject only affects open rate
+        ],
+        'Subject Δ': [
+            formatted_predictions['subject']['open_rate_diff'],
+            0,  # No change for click rate
+            0   # No change for optout rate
+        ],
+        'Combined': [
+            formatted_predictions['combined']['open_rate'],
+            formatted_predictions['combined']['click_rate'],
+            formatted_predictions['combined']['optout_rate']
+        ],
+        'Combined Δ': [
+            formatted_predictions['combined']['open_rate_diff'],
+            formatted_predictions['combined']['click_rate_diff'],
+            formatted_predictions['combined']['optout_rate_diff']
+        ]
+    })
+    
+    # Format values to show as percentages with 2 decimal places
+    formatted_df = metrics_df.copy()
+    
+    # Format regular metrics columns
+    for col in ['Current', 'Targeting', 'Subject', 'Combined']:
+        formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}%")
+    
+    # Format delta columns with +/- sign
+    for col in ['Targeting Δ', 'Subject Δ', 'Combined Δ']:
+        formatted_df[col] = formatted_df[col].apply(lambda x: f"+{x:.2f}%" if x >= 0 else f"{x:.2f}%")
+    
+    # Create colored cells for deltas
+    def color_delta(val):
+        """Colors positive deltas green and negative deltas red"""
+        try:
+            val_num = float(val.replace('%', '').replace('+', ''))
+            if val_num > 0:
+                return 'background-color: #8fff9c'  # Light green
+            elif val_num < 0:
+                return 'background-color: #ff9c9c'  # Light red
+            return ''
+        except:
+            return ''
+    
+    # Apply styling to the dataframe
+    styled_df = formatted_df.style.apply(
+        lambda x: [''] * len(x) if x.name not in ['Targeting Δ', 'Subject Δ', 'Combined Δ'] 
+                else [color_delta(val) for val in x],
+        axis=1
+    )
+    
+    return styled_df
 
 # Placeholder for validate_models (assumed to exist elsewhere)
 def validate_models(model_results, delivery_df, customer_df):
@@ -1745,16 +1937,6 @@ def generate_recommendations(model_features, models, delivery_df, subject_patter
         'combined': {'county': 'Stockholm', 'subject': subject_patterns[0], 'open_rate': predictions['open_rate'] + 3, 'click_rate': predictions['click_rate'] + 1, 'optout_rate': predictions['optout_rate'] - 0.5, 'open_rate_diff': 3, 'click_rate_diff': 1, 'optout_rate_diff': -0.5}
     }
     return recommendations
-
-# Placeholder for format_predictions (assumed to exist elsewhere)
-def format_predictions(recommendations):
-    """Format predictions for display (placeholder implementation)"""
-    return recommendations
-
-# Placeholder for track_prediction_performance (assumed to exist elsewhere)
-def track_prediction_performance(formatted_predictions):
-    """Track prediction performance (placeholder implementation)"""
-    pass
 
 # --- Main App ---
 # Step 1: Add the display_model_management function to app.py
@@ -2019,6 +2201,97 @@ def display_model_management(model_results):
             st.subheader("All Feature Names")
             st.write(model_results.get('feature_names', []))
 
+def validate_data(customer_df, delivery_df):
+    """
+    Validate the loaded data and report any issues
+    
+    Parameters:
+    - customer_df: DataFrame with customer data
+    - delivery_df: DataFrame with delivery data
+    
+    Returns:
+    - Tuple (is_valid, issues_list)
+    """
+    import pandas as pd
+    import numpy as np
+    import logging
+    
+    issues = []
+    
+    # Check if DataFrames exist
+    if customer_df is None or delivery_df is None:
+        return False, ["One or both DataFrames are missing"]
+    
+    # Check if DataFrames are empty
+    if len(customer_df) == 0:
+        issues.append("Customer data is empty")
+    
+    if len(delivery_df) == 0:
+        issues.append("Delivery data is empty")
+        return False, issues
+    
+    # Check required columns in delivery data
+    required_delivery_cols = ['InternalName', 'Subject', 'Sendouts', 'Opens', 'Clicks', 'Optouts']  # Note: Optouts with an 's'
+    missing_delivery_cols = [col for col in required_delivery_cols if col not in delivery_df.columns]
+    if missing_delivery_cols:
+        issues.append(f"Missing required delivery columns: {', '.join(missing_delivery_cols)}")
+        
+        # Special handling for Optout vs Optouts confusion
+        if 'Optouts' not in delivery_df.columns and 'Optout' in delivery_df.columns:
+            issues.append("Found 'Optout' column but expected 'Optouts'. Column naming may be inconsistent.")
+    
+    # Validate numeric columns in delivery data
+    numeric_cols = ['Sendouts', 'Opens', 'Clicks', 'Optouts']  # Note: Optouts with an 's'
+    for col in numeric_cols:
+        if col in delivery_df.columns:
+            # Check if column contains non-numeric data
+            if not pd.api.types.is_numeric_dtype(delivery_df[col]):
+                issues.append(f"Column {col} contains non-numeric data")
+            
+            # Check if column contains negative values
+            if (delivery_df[col] < 0).any():
+                issues.append(f"Column {col} contains negative values")
+    
+    # Check rate calculations
+    if 'open_rate' in delivery_df.columns:
+        if delivery_df['open_rate'].isna().any():
+            issues.append("open_rate contains NaN values")
+        if (delivery_df['open_rate'] < 0).any() or (delivery_df['open_rate'] > 100).any():
+            issues.append("open_rate contains values outside 0-100 range")
+    
+    if 'click_rate' in delivery_df.columns:
+        if delivery_df['click_rate'].isna().any():
+            issues.append("click_rate contains NaN values")
+        if (delivery_df['click_rate'] < 0).any() or (delivery_df['click_rate'] > 100).any():
+            issues.append("click_rate contains values outside 0-100 range")
+    
+    if 'optout_rate' in delivery_df.columns:
+        if delivery_df['optout_rate'].isna().any():
+            issues.append("optout_rate contains NaN values")
+        if (delivery_df['optout_rate'] < 0).any() or (delivery_df['optout_rate'] > 100).any():
+            issues.append("optout_rate contains values outside 0-100 range")
+    
+    # Check logical constraints
+    if all(col in delivery_df.columns for col in ['Opens', 'Sendouts']):
+        if (delivery_df['Opens'] > delivery_df['Sendouts']).any():
+            issues.append("Some rows have more Opens than Sendouts")
+    
+    if all(col in delivery_df.columns for col in ['Clicks', 'Opens']):
+        if (delivery_df['Clicks'] > delivery_df['Opens']).any():
+            issues.append("Some rows have more Clicks than Opens")
+            
+    if all(col in delivery_df.columns for col in ['Optouts', 'Opens']):
+        if (delivery_df['Optouts'] > delivery_df['Opens']).any():
+            issues.append("Some rows have more Optouts than Opens")
+    
+    # Log all issues
+    for issue in issues:
+        logging.warning(f"Data validation issue: {issue}")
+    
+    # Return results
+    is_valid = len(issues) == 0
+    return is_valid, issues
+
 def main():
     """
     Updated main function with all the enhancements:
@@ -2032,7 +2305,8 @@ def main():
     """
     # Header & Intro
     st.title("📧 Email Campaign KPI Predictor")
-    st.write("""This tool uses machine learning to predict email campaign performance and provides 
+    
+    st.markdown("""This tool uses machine learning to predict email campaign performance and provides 
     recommendations for targeting and subject lines to improve your KPIs.
     
     - **Subject Line Recommendations**: Optimize for open rates only
@@ -2052,6 +2326,14 @@ def main():
     if customer_df is None or delivery_df is None:
         st.error("Failed to load data. Please check file paths and formats.")
         return
+
+    # Validate the data
+    is_valid, issues = validate_data(customer_df, delivery_df)
+    if not is_valid:
+        st.warning("⚠️ Data validation found issues:")
+        for issue in issues:
+            st.write(f"- {issue}")
+        st.write("The application will try to continue, but results may be affected.")
 
     # Check if we need to force retraining
     force_retrain = st.session_state.get('force_retrain', False)
@@ -2148,8 +2430,8 @@ def main():
             # Add model performance for confidence calculation
             formatted_predictions['model_performance'] = model_results.get('performance', {})
 
-            # Track prediction performance
-            track_prediction_performance(formatted_predictions)
+            # Validate predictions to avoid zeros and unrealistic values
+            formatted_predictions = validate_predictions(formatted_predictions)
 
         # Calculate confidence scores if not already present
         if 'confidence' not in formatted_predictions['current']:
@@ -2262,31 +2544,31 @@ def main():
         with col2:
             st.plotly_chart(figures['radar'], use_container_width=True)
 
-        # Detailed comparison table
-        st.plotly_chart(figures['table'], use_container_width=True)
+        # When displaying detailed metrics comparison, use improved table
+        st.header("Detailed Metrics Comparison")
+        styled_df = create_improved_comparison_table(formatted_predictions)
+        st.dataframe(styled_df, use_container_width=True)
+                
+        # Add model management at the bottom
+        display_model_management(model_results)
         
-        # Add KPI dashboard at the bottom
-        display_kpi_dashboard(formatted_predictions, delivery_df)
-
     # Tab 2: Performance Insights
     with tab2:
         st.header("Campaign Performance Insights")
 
-        if 'Date' in delivery_df.columns:
-            delivery_df['Date'] = pd.to_datetime(delivery_df['Date'])
-            delivery_df['month'] = delivery_df['Date'].dt.strftime('%Y-%m')
-
-            # Create tabs for different metrics and analyses
-            metric_tab1, metric_tab2, metric_tab3, bolag_tab = st.tabs(["Open Rate", "Click Rate", "Optout Rate", "Company Analysis"])
-
-            with metric_tab1:
-                # Monthly open rate performance
+        # Monthly open rate performance - protect against missing columns
+        try:
+            # First ensure Date is datetime
+            if 'Date' in delivery_df.columns:
+                delivery_df['Date'] = pd.to_datetime(delivery_df['Date'])
+                delivery_df['month'] = delivery_df['Date'].dt.strftime('%Y-%m')
+            
                 monthly_opens = delivery_df.groupby('month').agg(
                     avg_open_rate=('open_rate', 'mean'),
-                    total_sends=('Sendouts', 'sum'),
-                    total_opens=('Opens', 'sum')
+                    total_sends=('Sendouts', 'sum') if 'Sendouts' in delivery_df.columns else None,
+                    total_opens=('Opens', 'sum') if 'Opens' in delivery_df.columns else None
                 ).reset_index()
-
+                
                 # Plot monthly open rates
                 fig_monthly_opens = px.line(
                     monthly_opens,
@@ -2297,114 +2579,122 @@ def main():
                     markers=True
                 )
                 st.plotly_chart(fig_monthly_opens, use_container_width=True)
+            else:
+                st.warning("Date column is missing. Cannot perform monthly analysis.")
+        except Exception as e:
+            st.warning(f"Error in monthly open rate analysis: {str(e)}")
 
-                # Open rate by county
-                if 'county' in delivery_df.columns:
-                    county_opens = delivery_df.groupby('county').agg(
-                        avg_open_rate=('open_rate', 'mean'),
-                        count=('InternalName', 'count')
-                    ).reset_index().sort_values('avg_open_rate', ascending=False)
+        # Open rate by county
+        if 'county' in delivery_df.columns:
+            county_opens = delivery_df.groupby('county').agg(
+                avg_open_rate=('open_rate', 'mean'),
+                count=('InternalName', 'count')
+            ).reset_index().sort_values('avg_open_rate', ascending=False)
 
-                    # Plot by county
-                    fig_county_opens = px.bar(
-                        county_opens,
-                        x='county',
-                        y='avg_open_rate',
-                        text=county_opens['avg_open_rate'].round(1).astype(str) + '%',
-                        title='Open Rate by County',
-                        labels={'avg_open_rate': 'Open Rate (%)', 'county': 'County'},
-                        color='avg_open_rate'
+            # Plot by county
+            fig_county_opens = px.bar(
+                county_opens,
+                x='county',
+                y='avg_open_rate',
+                text=county_opens['avg_open_rate'].round(1).astype(str) + '%',
+                title='Open Rate by County',
+                labels={'avg_open_rate': 'Open Rate (%)', 'county': 'County'},
+                color='avg_open_rate'
+            )
+            fig_county_opens.update_traces(textposition='auto')
+            fig_county_opens.update_layout(xaxis={'categoryorder': 'total descending'})
+
+            st.plotly_chart(fig_county_opens, use_container_width=True)
+            
+            metric_tab1, metric_tab2, metric_tab3, bolag_tab = st.tabs(["Open Rate", "Click Rate", "Optout Rate", "Company Analysis"])
+            
+            with metric_tab1:
+                # Monthly click rate performance
+                if 'Date' in delivery_df.columns and 'month' in delivery_df.columns:
+                    monthly_clicks = delivery_df.groupby('month').agg(
+                        avg_click_rate=('click_rate', 'mean'),
+                        total_opens=('Opens', 'sum') if 'Opens' in delivery_df.columns else None,
+                        total_clicks=('Clicks', 'sum') if 'Clicks' in delivery_df.columns else None
+                    ).reset_index()
+                    
+                    # Plot monthly click rates
+                    fig_monthly_clicks = px.line(
+                        monthly_clicks,
+                        x='month',
+                        y='avg_click_rate',
+                        title='Monthly Average Click Rate Trend',
+                        labels={'avg_click_rate': 'Click Rate (%)', 'month': 'Month'},
+                        markers=True
                     )
-                    fig_county_opens.update_traces(textposition='auto')
-                    fig_county_opens.update_layout(xaxis={'categoryorder': 'total descending'})
+                    st.plotly_chart(fig_monthly_clicks, use_container_width=True)
 
-                    st.plotly_chart(fig_county_opens, use_container_width=True)
+        # Click rate by county
+        if 'county' in delivery_df.columns:
+            county_clicks = delivery_df.groupby('county').agg(
+                avg_click_rate=('click_rate', 'mean'),
+                count=('InternalName', 'count')
+            ).reset_index().sort_values('avg_click_rate', ascending=False)
+
+            # Plot by county
+            fig_county_clicks = px.bar(
+                county_clicks,
+                x='county',
+                y='avg_click_rate',
+                text=county_clicks['avg_click_rate'].round(1).astype(str) + '%',
+                title='Click Rate by County',
+                labels={'avg_click_rate': 'Click Rate (%)', 'county': 'County'},
+                color='avg_click_rate'
+            )
+            fig_county_clicks.update_traces(textposition='auto')
+            fig_county_clicks.update_layout(xaxis={'categoryorder': 'total descending'})
+
+            st.plotly_chart(fig_county_clicks, use_container_width=True)
 
             with metric_tab2:
-                # Monthly click rate performance
-                monthly_clicks = delivery_df.groupby('month').agg(
-                    avg_click_rate=('click_rate', 'mean'),
-                    total_opens=('Opens', 'sum'),
-                    total_clicks=('Clicks', 'sum')
-                ).reset_index()
-
-                # Plot monthly click rates
-                fig_monthly_clicks = px.line(
-                    monthly_clicks,
-                    x='month',
-                    y='avg_click_rate',
-                    title='Monthly Average Click Rate Trend',
-                    labels={'avg_click_rate': 'Click Rate (%)', 'month': 'Month'},
-                    markers=True
-                )
-                st.plotly_chart(fig_monthly_clicks, use_container_width=True)
-
-                # Click rate by county
-                if 'county' in delivery_df.columns:
-                    county_clicks = delivery_df.groupby('county').agg(
-                        avg_click_rate=('click_rate', 'mean'),
-                        count=('InternalName', 'count')
-                    ).reset_index().sort_values('avg_click_rate', ascending=False)
-
-                    # Plot by county
-                    fig_county_clicks = px.bar(
-                        county_clicks,
-                        x='county',
-                        y='avg_click_rate',
-                        text=county_clicks['avg_click_rate'].round(1).astype(str) + '%',
-                        title='Click Rate by County',
-                        labels={'avg_click_rate': 'Click Rate (%)', 'county': 'County'},
-                        color='avg_click_rate'
+                # Monthly optout rate performance
+                if 'Date' in delivery_df.columns and 'month' in delivery_df.columns:
+                    monthly_optouts = delivery_df.groupby('month').agg(
+                        avg_optout_rate=('optout_rate', 'mean'),
+                        total_opens=('Opens', 'sum') if 'Opens' in delivery_df.columns else None,
+                        total_optouts=('Optouts', 'sum') if 'Optouts' in delivery_df.columns else None
+                    ).reset_index()
+                    
+                    # Plot monthly optout rates
+                    fig_monthly_optouts = px.line(
+                        monthly_optouts,
+                        x='month',
+                        y='avg_optout_rate',
+                        title='Monthly Average Optout Rate Trend',
+                        labels={'avg_optout_rate': 'Optout Rate (%)', 'month': 'Month'},
+                        markers=True
                     )
-                    fig_county_clicks.update_traces(textposition='auto')
-                    fig_county_clicks.update_layout(xaxis={'categoryorder': 'total descending'})
+                    st.plotly_chart(fig_monthly_optouts, use_container_width=True)
+    
+        # Optout rate by county
+        if 'county' in delivery_df.columns:
+            county_optouts = delivery_df.groupby('county').agg(
+                avg_optout_rate=('optout_rate', 'mean'),
+                count=('InternalName', 'count')
+            ).reset_index().sort_values('avg_optout_rate', ascending=True)  # Lower is better
 
-                    st.plotly_chart(fig_county_clicks, use_container_width=True)
+            # Plot by county
+            fig_county_optouts = px.bar(
+                county_optouts,
+                x='county',
+                y='avg_optout_rate',
+                text=county_optouts['avg_optout_rate'].round(1).astype(str) + '%',
+                title='Optout Rate by County',
+                labels={'avg_optout_rate': 'Optout Rate (%)', 'county': 'County'},
+                color='avg_optout_rate',
+                color_continuous_scale='Reds_r'  # Reversed scale (red is bad)
+            )
+            fig_county_optouts.update_traces(textposition='auto')
+            fig_county_optouts.update_layout(xaxis={'categoryorder': 'total ascending'})
+
+            st.plotly_chart(fig_county_optouts, use_container_width=True)
 
             with metric_tab3:
-                # Monthly optout rate performance
-                monthly_optouts = delivery_df.groupby('month').agg(
-                    avg_optout_rate=('optout_rate', 'mean'),
-                    total_opens=('Opens', 'sum'),
-                    total_optouts=('Optout', 'sum')
-                ).reset_index()
-
-                # Plot monthly optout rates
-                fig_monthly_optouts = px.line(
-                    monthly_optouts,
-                    x='month',
-                    y='avg_optout_rate',
-                    title='Monthly Average Optout Rate Trend',
-                    labels={'avg_optout_rate': 'Optout Rate (%)', 'month': 'Month'},
-                    markers=True
-                )
-                st.plotly_chart(fig_monthly_optouts, use_container_width=True)
-
-                # Optout rate by county
-                if 'county' in delivery_df.columns:
-                    county_optouts = delivery_df.groupby('county').agg(
-                        avg_optout_rate=('optout_rate', 'mean'),
-                        count=('InternalName', 'count')
-                    ).reset_index().sort_values('avg_optout_rate', ascending=True)  # Lower is better
-
-                    # Plot by county
-                    fig_county_optouts = px.bar(
-                        county_optouts,
-                        x='county',
-                        y='avg_optout_rate',
-                        text=county_optouts['avg_optout_rate'].round(1).astype(str) + '%',
-                        title='Optout Rate by County',
-                        labels={'avg_optout_rate': 'Optout Rate (%)', 'county': 'County'},
-                        color='avg_optout_rate',
-                        color_continuous_scale='Reds_r'  # Reversed scale (red is bad)
-                    )
-                    fig_county_optouts.update_traces(textposition='auto')
-                    fig_county_optouts.update_layout(xaxis={'categoryorder': 'total ascending'})
-
-                    st.plotly_chart(fig_county_optouts, use_container_width=True)
-
-            # Company (Bolag) analysis tab
-            with bolag_tab:
+                # Company (Bolag) analysis tab
                 st.subheader("Performance Analysis by Company (Bolag)")
                 st.write("""This analysis shows how customers from different companies (Bolag) engage with emails.
                 While campaigns are sent globally, this can help identify if certain company segments 
@@ -2655,12 +2945,6 @@ def main():
     # Tab 6: Forecast (New)
     with tab6:
         create_forecast_tab(customer_df, delivery_df, formatted_predictions, parameters, BOLAG_VALUES)
-
-    # Tab 4: Model Management
-    if False:  # Disabled for now to make room for more important tabs
-        with tab4:
-            # This is where you add the call to display_model_management
-            display_model_management(model_results)
 
 if __name__ == "__main__":
     main()

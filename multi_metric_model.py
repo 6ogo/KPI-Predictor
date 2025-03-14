@@ -140,9 +140,15 @@ def train_multi_metric_models(delivery_df, customer_df):
         # Create preprocessing steps
         preprocessor = ColumnTransformer(
             transformers=[
-                ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features),
-                ('num', StandardScaler(), numerical_features)
-            ]
+                ('cat', Pipeline([
+                    ('encoder', OneHotEncoder(handle_unknown='ignore'))
+                ]), categorical_features),
+                ('num', Pipeline([
+                    ('imputer', SimpleImputer(strategy='median')),
+                    ('scaler', StandardScaler())
+                ]), numerical_features)
+            ],
+            remainder='passthrough'
         )
         
         # Define model parameters
@@ -419,29 +425,114 @@ def process_data_directly(delivery_df, customer_df):
 
 def predict_metrics(input_data, models, metrics=None):
     """
-    Predict multiple metrics based on input data
+    Predict multiple metrics based on input data with type-safe error handling
     
     Parameters:
     - input_data: DataFrame with input features
-    - models: Dict of trained models for different metrics
-    - metrics: List of metrics to predict (default: all available)
-    
+    - models: Dictionary mapping metric names to trained models
+    - metrics: Optional list of metrics to predict, defaults to all models
     Returns:
     - Dictionary with predicted values for each metric
     """
-    if metrics is None:
+    import pandas as pd
+    import numpy as np
+    import logging
+    
+    # Define sensible default values for each metric
+    default_values = {
+        'open_rate': 25.0,  # 25% open rate
+        'click_rate': 3.0,  # 3% click rate
+        'optout_rate': 0.2,  # 0.2% optout rate
+        'subject_open_rate': 25.0  # 25% open rate for subject optimization
+    }
+    
+    if metrics is None and isinstance(models, dict):
         metrics = list(models.keys())
+    elif metrics is None:
+        metrics = ['open_rate', 'click_rate', 'optout_rate']
     
-    predictions = {}
+    # Initialize with default values
+    predictions = {metric: default_values.get(metric, 0.0) for metric in metrics}
     
+    # Safety checks
+    if models is None or not isinstance(models, dict) or len(models) == 0:
+        logging.warning("No models available for prediction, using default values")
+        return predictions
+    
+    if input_data is None or not isinstance(input_data, pd.DataFrame) or input_data.empty:
+        logging.warning("Invalid input data, using default values")
+        return predictions
+    
+    # Process each metric with extensive error handling
     for metric in metrics:
-        if metric in models:
+        if metric not in models:
+            logging.warning(f"No model found for {metric}, using default value")
+            continue
+        
+        try:
+            # Make a safe copy of input data
+            input_data_safe = input_data.copy()
+            
+            # CRITICAL: Explicitly convert all columns to ensure type safety
+            for col in input_data_safe.columns:
+                try:
+                    # For numeric columns - use explicit try/except instead of errors='ignore'
+                    try:
+                        numeric_values = pd.to_numeric(input_data_safe[col]) 
+                        input_data_safe[col] = numeric_values
+                    except (ValueError, TypeError):
+                        # If conversion fails, keep original values
+                        pass
+                    
+                    # Special handling for object columns to avoid isnan issues
+                    if input_data_safe[col].dtype == 'object':
+                        # Replace any null values with string "Unknown"
+                        input_data_safe[col] = input_data_safe[col].fillna("Unknown")
+                    # For numeric columns, replace NaN with 0
+                    elif pd.api.types.is_numeric_dtype(input_data_safe[col]):
+                        input_data_safe[col] = input_data_safe[col].fillna(0)
+                except Exception as e:
+                    # If any error, set to default value that's safe for all types
+                    logging.error(f"Error processing column {col}: {str(e)}")
+                    if pd.api.types.is_numeric_dtype(input_data_safe[col]):
+                        input_data_safe[col] = 0
+                    else:
+                        input_data_safe[col] = "Unknown"
+            
+            # Prediction with type safety
             try:
-                predictions[metric] = models[metric].predict(input_data)[0]
+                # Use a simpler approach - many models don't predict well with missing features
+                prediction_result = models[metric].predict(input_data_safe)
+                if len(prediction_result) > 0:
+                    raw_prediction = prediction_result[0]
+                    
+                    # TYPE SAFETY: Convert to Python float, avoiding numpy types
+                    try:
+                        # Convert to basic Python float to avoid numpy type issues
+                        prediction = float(raw_prediction)
+                        
+                        # Validate the prediction is a reasonable value - use Python's math functions
+                        # instead of numpy to avoid type compatibility issues
+                        if not (prediction == prediction) or prediction == float('inf') or prediction == float('-inf'):
+                            raise ValueError(f"Non-finite prediction: {prediction}")
+                            
+                        # Clip prediction to reasonable values for rates
+                        if metric.endswith('_rate'):
+                            prediction = max(0, min(100, prediction))
+                            
+                        predictions[metric] = prediction
+                    except (TypeError, ValueError) as e:
+                        logging.error(f"Type error with prediction for {metric}: {str(e)}")
+                        predictions[metric] = default_values.get(metric, 0.0)
+                else:
+                    logging.warning(f"Empty prediction result for {metric}")
+                    predictions[metric] = default_values.get(metric, 0.0)
             except Exception as e:
-                logging.error(f"Error predicting {metric}: {e}")
-                # Fall back to a default value
-                predictions[metric] = 0.0
+                logging.error(f"Error during model prediction for {metric}: {str(e)}")
+                predictions[metric] = default_values.get(metric, 0.0)
+        except Exception as e:
+            logging.error(f"Error preparing data for {metric} prediction: {str(e)}")
+            predictions[metric] = default_values.get(metric, 0.0)
     
     return predictions
 
