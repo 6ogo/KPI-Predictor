@@ -33,15 +33,12 @@ def generate_recommendations(input_data, models, delivery_df, subject_patterns=N
         'county': best_county,
         'predictions': targeting_predictions
     }
-    
-    # 3. Subject line recommendation (only predict open_rate)
-    from subject_recommendation import recommend_subject
-    
+        
     current_subject = input_data['subject'][0] if 'subject' in input_data else ""
     recommended_subject = recommend_subject(current_subject, delivery_df, 
                                             subject_patterns=subject_patterns)
     
-    # Extract features from recommended subject
+    # 3. Extract features from recommended subject
     from feature_engineering import extract_subject_features
     recommended_subject_features = extract_subject_features(recommended_subject)
     

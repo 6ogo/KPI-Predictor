@@ -11,12 +11,11 @@ import datetime
 
 
 # Custom modules
-from feature_engineering import enhanced_feature_engineering, extract_subject_features
-from multi_metric_model import train_multi_metric_models, predict_metrics
-from recommendations import generate_recommendations, format_predictions
-from subject_recommendation import build_subject_recommendation_model, recommend_subject
+from feature_engineering import extract_subject_features
+from multi_metric_model import predict_metrics, enhanced_train_multi_metric_models
+from subject_recommendation import build_subject_recommendation_model
 from visualizations import create_visualizations
-from model_metadata import track_model_performance, model_needs_retraining, get_model_version
+from model_metadata import track_model_performance, model_needs_retraining
 
 # Set page config
 st.set_page_config(
@@ -368,114 +367,6 @@ def track_prediction_performance(formatted_predictions, actual_metrics=None):
         pred_df.to_csv(predictions_log_path, index=False)
     
     return prediction_data
-
-def track_model_performance(model_results, actual_metrics=None):
-    """
-    Track model performance over time and log it
-    
-    Parameters:
-    - model_results: Dictionary containing model information
-    - actual_metrics: Optional dictionary with actual metrics if available
-    
-    Returns:
-    - Dictionary with performance tracking info
-    """
-    import pandas as pd
-    import os
-    import datetime
-    
-    performance_log_path = "saved_models/performance_log.csv"
-    
-    # Create log data
-    log_data = {
-        'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'version': model_results.get('version', 'unknown')
-    }
-    
-    # Add model performance metrics
-    if 'performance' in model_results:
-        for metric, results in model_results['performance'].items():
-            log_data[f'{metric}_mae'] = results.get('mae', None)
-            log_data[f'{metric}_std'] = results.get('std', None)
-    
-    # Add actual metrics if available
-    if actual_metrics:
-        for metric, value in actual_metrics.items():
-            log_data[f'actual_{metric}'] = value
-    
-    # Create or append to log file
-    log_df = pd.DataFrame([log_data])
-    
-    if os.path.exists(performance_log_path):
-        existing_log = pd.read_csv(performance_log_path)
-        updated_log = pd.concat([existing_log, log_df], ignore_index=True)
-        updated_log.to_csv(performance_log_path, index=False)
-    else:
-        os.makedirs(os.path.dirname(performance_log_path), exist_ok=True)
-        log_df.to_csv(performance_log_path, index=False)
-    
-    return log_data
-
-
-def model_needs_retraining(performance_log_path="saved_models/performance_log.csv", threshold=0.05):
-    """
-    Check if model should be retrained based on performance degradation
-    
-    Parameters:
-    - performance_log_path: Path to the performance log CSV file
-    - threshold: Threshold for performance degradation (0.05 = 5%)
-    
-    Returns:
-    - Boolean indicating if retraining is recommended
-    - Reason for recommendation
-    """
-    import pandas as pd
-    import os
-    
-    if not os.path.exists(performance_log_path):
-        return False, "No performance history available"
-    
-    try:
-        log_df = pd.read_csv(performance_log_path)
-        
-        if len(log_df) < 5:
-            return False, "Not enough performance history to make a decision"
-        
-        # Check performance trends for each metric
-        metrics = [col.replace('_mae', '') for col in log_df.columns if col.endswith('_mae')]
-        
-        for metric in metrics:
-            # Get MAE values
-            mae_col = f'{metric}_mae'
-            if mae_col not in log_df.columns:
-                continue
-                
-            # Get first and most recent 5 entries
-            first_entries = log_df.head(5)[mae_col].mean()
-            recent_entries = log_df.tail(5)[mae_col].mean()
-            
-            # Calculate degradation
-            if first_entries > 0:
-                degradation = (recent_entries - first_entries) / first_entries
-                
-                if degradation > threshold:
-                    return True, f"{metric} performance has degraded by {degradation*100:.1f}%"
-        
-        return False, "Model performance is stable"
-    except Exception as e:
-        return False, f"Error analyzing performance history: {str(e)}"
-
-
-def get_model_version():
-    """Generate a version identifier for models"""
-    import datetime
-    import hashlib
-    import random
-    
-    timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-    random_suffix = hashlib.md5(str(random.random()).encode()).hexdigest()[:6]
-    
-    return f"{timestamp}-{random_suffix}"
 
 # --- Main App ---
 def main():
