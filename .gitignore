@@ -1,3 +1,4 @@
 data/delivery_data.csv
 data/customer_data.csv
 /__pycache__
+/prediction_logs
