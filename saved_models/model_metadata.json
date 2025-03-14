@@ -1,0 +1,37 @@
+{
+  "version": "20250314143434-f4bffb",
+  "created_at": "2025-03-14 14:34:34",
+  "data_stats": {
+    "num_campaigns": 36,
+    "feature_count": 22,
+    "categorical_features": [
+      "Dialog",
+      "Syfte",
+      "Produkt",
+      "county",
+      "dialog",
+      "syfte",
+      "product"
+    ]
+  },
+  "performance": {
+    "open_rate": {
+      "mae": 14.283819190991238,
+      "std": 12.379295101480569
+    },
+    "click_rate": {
+      "mae": 1.9034503185060685,
+      "std": 1.5486315421868
+    },
+    "optout_rate": {
+      "mae": 0.1038126508659927,
+      "std": 0.012151399227254178
+    }
+  },
+  "model_types": {
+    "open_rate": "Pipeline",
+    "click_rate": "Pipeline",
+    "optout_rate": "Pipeline",
+    "subject_open_rate": "Pipeline"
+  }
+}

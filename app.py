@@ -155,40 +155,63 @@ def load_data():
         # Handling column name case sensitivity by standardizing column names
         # Map upper/lowercase variations to standard form
         column_mapping = {
-            'OptOut': 'optout',
-            'Optout': 'optout',
-            'OPTOUT': 'optout',
-            'Opens': 'opens',
-            'OPENS': 'opens',
-            'Open': 'open',
-            'OPEN': 'open',
-            'Clicks': 'clicks',
-            'CLICKS': 'clicks',
-            'Click': 'click',
-            'CLICK': 'click',
-            'Sendouts': 'sendouts',
-            'SENDOUTS': 'sendouts',
-            'Utskick': 'sendouts',
-            'UTSKICK': 'sendouts'
+            'OptOut': 'Optout',
+            'OPTOUT': 'Optout',
+            'optout': 'Optout',
+            'Opens': 'Opens',
+            'OPENS': 'Opens',
+            'opens': 'Opens',
+            'Open': 'Open',
+            'OPEN': 'Open',
+            'open': 'Open',
+            'Clicks': 'Clicks',
+            'CLICKS': 'Clicks',
+            'clicks': 'Clicks',
+            'Click': 'Click',
+            'CLICK': 'Click',
+            'click': 'Click',
+            'Sendouts': 'Sendouts',
+            'SENDOUTS': 'Sendouts',
+            'Utskick': 'Sendouts',
+            'UTSKICK': 'Sendouts',
+            'subject': 'Subject',
+            'Subject': 'Subject',
+            'SUBJECT': 'Subject'
         }
         
         # Apply column name standardization to both dataframes
         customer_df.columns = [column_mapping.get(col, col) for col in customer_df.columns]
         delivery_df.columns = [column_mapping.get(col, col) for col in delivery_df.columns]
         
+        # Make sure county column exists for targeting
+        if 'county' not in delivery_df.columns:
+            # Try to get county from Bolag in customer data
+            if 'Bolag' in customer_df.columns:
+                # Group by delivery and get most common Bolag as the county
+                county_map = customer_df.groupby('InternalName')['Bolag'].agg(
+                    lambda x: x.value_counts().index[0] if len(x.value_counts()) > 0 else 'Unknown'
+                ).to_dict()
+                
+                # Map to delivery data
+                delivery_df['county'] = delivery_df['InternalName'].map(county_map)
+                delivery_df['county'].fillna('Stockholm', inplace=True)
+            else:
+                # Default to a standard set of counties if no info available
+                delivery_df['county'] = 'Stockholm'
+        
         # Calculate rates if they don't exist yet
         if 'open_rate' not in delivery_df.columns:
             # Check if we have the necessary columns for calculation
-            if 'opens' in delivery_df.columns and 'sendouts' in delivery_df.columns:
-                delivery_df['open_rate'] = (delivery_df['opens'] / delivery_df['sendouts']) * 100
+            if 'Opens' in delivery_df.columns and 'Sendouts' in delivery_df.columns:
+                delivery_df['open_rate'] = (delivery_df['Opens'] / delivery_df['Sendouts']) * 100
         
         if 'click_rate' not in delivery_df.columns:
-            if 'clicks' in delivery_df.columns and 'opens' in delivery_df.columns:
-                delivery_df['click_rate'] = (delivery_df['clicks'] / delivery_df['opens']) * 100
+            if 'Clicks' in delivery_df.columns and 'Opens' in delivery_df.columns:
+                delivery_df['click_rate'] = (delivery_df['Clicks'] / delivery_df['Opens']) * 100
             
         if 'optout_rate' not in delivery_df.columns:
-            if 'optout' in delivery_df.columns and 'opens' in delivery_df.columns:
-                delivery_df['optout_rate'] = (delivery_df['optout'] / delivery_df['opens']) * 100
+            if 'Optout' in delivery_df.columns and 'Opens' in delivery_df.columns:
+                delivery_df['optout_rate'] = (delivery_df['Optout'] / delivery_df['Opens']) * 100
         
         # Handle infinities and NaNs
         delivery_df.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -196,6 +219,11 @@ def load_data():
             'click_rate': 0,
             'optout_rate': 0
         }, inplace=True)
+        
+        # Print data info for debugging
+        print(f"Loaded {len(customer_df)} customer records and {len(delivery_df)} delivery records")
+        print(f"Customer columns: {customer_df.columns.tolist()}")
+        print(f"Delivery columns: {delivery_df.columns.tolist()}")
         
         return customer_df, delivery_df
     except Exception as e:
@@ -467,6 +495,49 @@ def generate_model_improvement_recommendations(delivery_df, errors):
                          "from subject lines or adding customer engagement history.")
     
     return recommendations
+
+def track_prediction_performance(predictions):
+    """Track and log prediction performance for future analysis"""
+    import os
+    import datetime
+    import pandas as pd
+    
+    # Create a log entry
+    log_entry = {
+        'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'current_open_rate': predictions['current']['open_rate'],
+        'current_click_rate': predictions['current']['click_rate'],
+        'current_optout_rate': predictions['current']['optout_rate'],
+        'targeting_open_rate': predictions['targeting']['open_rate'],
+        'targeting_click_rate': predictions['targeting']['click_rate'],
+        'targeting_optout_rate': predictions['targeting']['optout_rate'],
+        'subject_open_rate': predictions['subject']['open_rate'],
+        'combined_open_rate': predictions['combined']['open_rate'],
+        'combined_click_rate': predictions['combined']['click_rate'],
+        'combined_optout_rate': predictions['combined']['optout_rate']
+    }
+    
+    # Prepare directory and file
+    log_dir = "prediction_logs"
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "prediction_performance.csv")
+    
+    # Create or append to log
+    log_df = pd.DataFrame([log_entry])
+    
+    if os.path.exists(log_file):
+        try:
+            existing_log = pd.read_csv(log_file)
+            updated_log = pd.concat([existing_log, log_df], ignore_index=True)
+            updated_log.to_csv(log_file, index=False)
+        except Exception as e:
+            print(f"Error updating prediction log: {e}")
+            # If error, create new file
+            log_df.to_csv(log_file, index=False)
+    else:
+        log_df.to_csv(log_file, index=False)
+    
+    return log_entry
 
 # --- Main App ---
 def main():

@@ -37,7 +37,7 @@ def recommend_subject(current_subject, delivery_df, subject_patterns=None):
     features = extract_subject_features(current_subject)
     
     if features['has_personalization'] == 0:
-        return "Your " + current_subject
+        return "Din " + current_subject  # Swedish "Your"
     
     if features['has_question'] == 0:
         return current_subject + "?"
@@ -70,8 +70,23 @@ def build_subject_recommendation_model(delivery_df):
     import numpy as np
     from feature_engineering import extract_subject_features
     
+    # Get the subject column (either 'subject' or 'Subject')
+    if 'subject' in delivery_df.columns:
+        subject_col = 'subject'
+    elif 'Subject' in delivery_df.columns:
+        subject_col = 'Subject'
+    else:
+        # Create empty recommendations if no subject column exists
+        return {
+            'informational': "Viktig information om din tjänst",
+            'promotional': "Specialerbjudande: Ta del av våra förmåner idag",
+            'newsletter': "Din månatliga uppdatering",
+            'announcement': "Nyheter: Nya tjänster och erbjudanden",
+            'reminder': "Påminnelse: Viktig information om ditt konto"
+        }, ["Din [PRODUCT] [ACTION] för [BENEFIT]"]
+    
     # Extract features from all historical subject lines
-    subject_features_df = pd.DataFrame(delivery_df['subject'].apply(extract_subject_features).tolist())
+    subject_features_df = pd.DataFrame(delivery_df[subject_col].apply(extract_subject_features).tolist())
     
     # Add open rates to the features
     subject_features_df['open_rate'] = delivery_df['open_rate'].values
@@ -84,21 +99,21 @@ def build_subject_recommendation_model(delivery_df):
         question_impact = subject_features_df.groupby('has_question')['open_rate'].mean()
         
         if question_impact.get(1, 0) > question_impact.get(0, 0):
-            patterns.append("Why [PRODUCT] [ACTION] can [BENEFIT] you?")
+            patterns.append("Varför [PRODUCT] [ACTION] kan [BENEFIT] du?")
     
     # 2. Personalization in subject line
     if 'has_personalization' in subject_features_df.columns:
         personalization_impact = subject_features_df.groupby('has_personalization')['open_rate'].mean()
         
         if personalization_impact.get(1, 0) > personalization_impact.get(0, 0):
-            patterns.append("Your [PRODUCT] [ACTION] is ready with [BENEFIT]")
+            patterns.append("Din [PRODUCT] [ACTION] är redo med [BENEFIT]")
     
     # 3. Numbers in subject line
     if 'has_numbers' in subject_features_df.columns:
         numbers_impact = subject_features_df.groupby('has_numbers')['open_rate'].mean()
         
         if numbers_impact.get(1, 0) > numbers_impact.get(0, 0):
-            patterns.append("3 ways to [ACTION] your [PRODUCT] for [BENEFIT]")
+            patterns.append("3 sätt att [ACTION] din [PRODUCT] för [BENEFIT]")
     
     # 4. Optimal length
     if 'length' in subject_features_df.columns:
@@ -113,29 +128,29 @@ def build_subject_recommendation_model(delivery_df):
         best_length = length_impact.idxmax() if not length_impact.empty else 'short'
         
         if best_length == 'very_short':
-            patterns.append("[ACTION] [PRODUCT] now")
+            patterns.append("[ACTION] [PRODUCT] nu")
         elif best_length == 'short':
-            patterns.append("[ACTION] your [PRODUCT] for [BENEFIT]")
+            patterns.append("[ACTION] din [PRODUCT] för [BENEFIT]")
         elif best_length == 'medium':
-            patterns.append("The best way to [ACTION] your [PRODUCT] for amazing [BENEFIT]")
+            patterns.append("Bästa sättet att [ACTION] din [PRODUCT] för bra [BENEFIT]")
         else:  # long
-            patterns.append("Discover how you can [ACTION] your [PRODUCT] to achieve the greatest [BENEFIT] this month")
+            patterns.append("Upptäck hur du kan [ACTION] din [PRODUCT] för att uppnå bästa [BENEFIT] denna månad")
     
     # 5. Default pattern if no patterns generated
     if not patterns:
         patterns = [
-            "Discover your [PRODUCT] [BENEFIT] today",
-            "How to [ACTION] your [PRODUCT] for better [BENEFIT]",
-            "Your [PRODUCT]: [ACTION] for [BENEFIT] now"
+            "Upptäck din [PRODUCT] [BENEFIT] idag",
+            "Hur du kan [ACTION] din [PRODUCT] för bättre [BENEFIT]",
+            "Din [PRODUCT]: [ACTION] för [BENEFIT] nu"
         ]
     
-    # Create subject recommendations by category
+    # Create subject recommendations by category - using Swedish text
     recommendations = {
-        'informational': "[PRODUCT] update: Important information about your [BENEFIT]",
-        'promotional': "Special offer: [ACTION] [PRODUCT] and get [BENEFIT]",
-        'newsletter': "Your monthly [PRODUCT] update: [BENEFIT] and more",
-        'announcement': "Announcing: New [PRODUCT] [BENEFIT] - [ACTION] now",
-        'reminder': "Reminder: [ACTION] your [PRODUCT] for [BENEFIT] by Friday"
+        'informational': "Information om [PRODUCT]: Viktig information om din [BENEFIT]",
+        'promotional': "Specialerbjudande: [ACTION] [PRODUCT] och få [BENEFIT]",
+        'newsletter': "Din månatliga [PRODUCT] uppdatering: [BENEFIT] och mer",
+        'announcement': "Nyheter: Nya [PRODUCT] [BENEFIT] - [ACTION] nu",
+        'reminder': "Påminnelse: [ACTION] din [PRODUCT] för [BENEFIT] innan fredag"
     }
     
     return recommendations, patterns
@@ -176,8 +191,16 @@ def generate_recommendations(input_data, models, delivery_df, subject_patterns=N
         'county': best_county,
         'predictions': targeting_predictions
     }
+    
+    # Get the current subject (could be 'subject' or 'Subject' column)
+    if 'subject' in input_data.columns:
+        current_subject = input_data['subject'].iloc[0]
+    elif 'Subject' in input_data.columns:
+        current_subject = input_data['Subject'].iloc[0]
+    else:
+        current_subject = ""
         
-    current_subject = input_data['subject'][0] if 'subject' in input_data else ""
+    # Get recommended subject
     recommended_subject = recommend_subject(current_subject, delivery_df, 
                                             subject_patterns=subject_patterns)
     
@@ -192,11 +215,11 @@ def generate_recommendations(input_data, models, delivery_df, subject_patterns=N
             subject_data[feature] = value
     
     # Only predict open_rate for subject line recommendations
-    subject_prediction = models['open_rate'].predict(subject_data)[0]
+    subject_prediction = predict_metrics(subject_data, models, metrics=['open_rate'])
     
     results['subject'] = {
         'text': recommended_subject,
-        'open_rate': subject_prediction
+        'open_rate': subject_prediction.get('open_rate', 0)
     }
     
     # 4. Combined recommendation (targeting + subject)
@@ -208,7 +231,7 @@ def generate_recommendations(input_data, models, delivery_df, subject_patterns=N
     
     # Predict all metrics for the combined recommendation
     combined_predictions = predict_metrics(combined_data, models, 
-                                           metrics=['open_rate', 'click_rate', 'optout_rate'])
+                                          metrics=['open_rate', 'click_rate', 'optout_rate'])
     
     results['combined'] = {
         'county': best_county,
@@ -282,127 +305,11 @@ def predict_metrics(input_data, models, metrics=None):
     
     for metric in metrics:
         if metric in models:
-            predictions[metric] = models[metric].predict(input_data)[0]
+            try:
+                predictions[metric] = models[metric].predict(input_data)[0]
+            except Exception as e:
+                print(f"Error predicting {metric}: {e}")
+                # Fall back to a default value
+                predictions[metric] = 0.0
     
     return predictions
-
-def generate_recommendations(input_data, models, delivery_df, subject_patterns=None):
-    """
-    Generate recommendations for targeting and subject lines
-    
-    Parameters:
-    - input_data: DataFrame with current input parameters
-    - models: Dict of trained models for different metrics
-    - delivery_df: DataFrame with historical delivery data
-    - subject_patterns: Optional subject line patterns from clustering
-    
-    Returns:
-    - Dictionary with recommendations and predictions
-    """
-    results = {}
-    
-    # 1. Current predictions (baseline)
-    current_predictions = predict_metrics(input_data, models)
-    results['current'] = current_predictions
-    
-    # 2. Targeting recommendations
-    # Find best performing county based on historical data
-    best_county = delivery_df.groupby('county')['open_rate'].mean().idxmax() if 'county' in delivery_df.columns else "Stockholm"
-    
-    # Create input with recommended targeting
-    targeting_data = input_data.copy()
-    targeting_data['county'] = best_county
-    
-    # Predict all metrics for targeting recommendations
-    targeting_predictions = predict_metrics(targeting_data, models, 
-                                            metrics=['open_rate', 'click_rate', 'optout_rate'])
-    
-    results['targeting'] = {
-        'county': best_county,
-        'predictions': targeting_predictions
-    }
-        
-    current_subject = input_data['subject'][0] if 'subject' in input_data else ""
-    recommended_subject = recommend_subject(current_subject, delivery_df, 
-                                            subject_patterns=subject_patterns)
-    
-    # 3. Extract features from recommended subject
-    from feature_engineering import extract_subject_features
-    recommended_subject_features = extract_subject_features(recommended_subject)
-    
-    # Create input with recommended subject
-    subject_data = input_data.copy()
-    for feature, value in recommended_subject_features.items():
-        if feature in subject_data.columns:
-            subject_data[feature] = value
-    
-    # Only predict open_rate for subject line recommendations
-    subject_prediction = models['open_rate'].predict(subject_data)[0]
-    
-    results['subject'] = {
-        'text': recommended_subject,
-        'open_rate': subject_prediction
-    }
-    
-    # 4. Combined recommendation (targeting + subject)
-    # Create combined input data
-    combined_data = targeting_data.copy()
-    for feature, value in recommended_subject_features.items():
-        if feature in combined_data.columns:
-            combined_data[feature] = value
-    
-    # Predict all metrics for the combined recommendation
-    combined_predictions = predict_metrics(combined_data, models, 
-                                           metrics=['open_rate', 'click_rate', 'optout_rate'])
-    
-    results['combined'] = {
-        'county': best_county,
-        'subject': recommended_subject,
-        'predictions': combined_predictions
-    }
-    
-    return results
-
-
-def format_predictions(recommendations):
-    """Format prediction results for display"""
-    formatted = {}
-    
-    # Current predictions
-    formatted['current'] = {
-        'open_rate': recommendations['current'].get('open_rate', 0),
-        'click_rate': recommendations['current'].get('click_rate', 0),
-        'optout_rate': recommendations['current'].get('optout_rate', 0)
-    }
-    
-    # Targeting recommendations
-    formatted['targeting'] = {
-        'county': recommendations['targeting']['county'],
-        'open_rate': recommendations['targeting']['predictions'].get('open_rate', 0),
-        'click_rate': recommendations['targeting']['predictions'].get('click_rate', 0),
-        'optout_rate': recommendations['targeting']['predictions'].get('optout_rate', 0),
-        'open_rate_diff': recommendations['targeting']['predictions'].get('open_rate', 0) - formatted['current']['open_rate'],
-        'click_rate_diff': recommendations['targeting']['predictions'].get('click_rate', 0) - formatted['current']['click_rate'],
-        'optout_rate_diff': recommendations['targeting']['predictions'].get('optout_rate', 0) - formatted['current']['optout_rate']
-    }
-    
-    # Subject recommendations (only open rate)
-    formatted['subject'] = {
-        'text': recommendations['subject']['text'],
-        'open_rate': recommendations['subject']['open_rate'],
-        'open_rate_diff': recommendations['subject']['open_rate'] - formatted['current']['open_rate']
-    }
-    
-    # Combined recommendations
-    formatted['combined'] = {
-        'county': recommendations['combined']['county'],
-        'subject': recommendations['combined']['subject'],
-        'open_rate': recommendations['combined']['predictions'].get('open_rate', 0),
-        'click_rate': recommendations['combined']['predictions'].get('click_rate', 0),
-        'optout_rate': recommendations['combined']['predictions'].get('optout_rate', 0),
-        'open_rate_diff': recommendations['combined']['predictions'].get('open_rate', 0) - formatted['current']['open_rate'],
-        'click_rate_diff': recommendations['combined']['predictions'].get('click_rate', 0) - formatted['current']['click_rate'],
-        'optout_rate_diff': recommendations['combined']['predictions'].get('optout_rate', 0) - formatted['current']['optout_rate']
-    }
-    
-    return formatted

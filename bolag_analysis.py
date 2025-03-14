@@ -15,6 +15,27 @@ def create_bolag_analysis(delivery_df, customer_df):
     
     figures = {}
     
+    # Check if Bolag column exists
+    if 'Bolag' not in customer_df.columns:
+        # Create a generic analysis with a message about missing data
+        import plotly.graph_objects as go
+        
+        fig_missing = go.Figure()
+        fig_missing.add_annotation(
+            x=0.5, y=0.5,
+            text="Bolag information missing in customer data",
+            font=dict(size=20),
+            showarrow=False
+        )
+        
+        # Return the same placeholder for all charts
+        return {
+            'open_rate': fig_missing,
+            'click_rate': fig_missing,
+            'optout_rate': fig_missing,
+            'comparison': fig_missing
+        }, pd.DataFrame(columns=['Bolag', 'avg_open_rate', 'avg_click_rate', 'avg_optout_rate', 'total_deliveries', 'total_customers'])
+    
     # First, need to merge customer data (which has Bolag) with delivery data (which has metrics)
     # This needs to be done carefully to avoid duplicate counting
     
@@ -22,8 +43,11 @@ def create_bolag_analysis(delivery_df, customer_df):
     delivery_metrics = delivery_df[['InternalName', 'open_rate', 'click_rate', 'optout_rate']].copy()
     
     # Step 2: Group customer data by Bolag and InternalName, to get one row per delivery per Bolag
+    # Handle potential missing columns
+    count_column = 'Primary key' if 'Primary key' in customer_df.columns else 'InternalName'
+    
     customer_deliveries = customer_df.groupby(['Bolag', 'InternalName']).agg(
-        customer_count=pd.NamedAgg(column='Primary k isWoman OptOut', aggfunc='count')
+        customer_count=pd.NamedAgg(column=count_column, aggfunc='count')
     ).reset_index()
     
     # Step 3: Merge with delivery metrics
